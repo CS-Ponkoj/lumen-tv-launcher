@@ -1,4 +1,4 @@
-# My Home — ad-free Google TV launcher
+# My Home: ad-free Google TV launcher
 
 A tiny (~35 KB) home screen for Android / Google TV with a tinted glass look.
 No ads, no recommendations, no INTERNET permission.

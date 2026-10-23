@@ -38,4 +38,4 @@ adb install -r build/myhome.apk
 Then on the TV: Settings → System → Accessibility → turn on **My Home - Home button**.
 
 ## License
-MIT — see [LICENSE](LICENSE).
+MIT  see [LICENSE](LICENSE).

@@ -147,7 +147,7 @@ final class Store {
     void setBorder(int b) { p.edit().putInt("border", b).apply(); }
 
     // ---- look ----
-    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2, STYLE_MONO = 3, STYLE_COMPACT = 4, STYLE_SQUARE = 5;
+    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2, STYLE_MONO = 3, STYLE_COMPACT = 4, STYLE_SQUARE = 5, STYLE_TINTED = 6;
     int cardStyle() { return p.getInt("card_style", STYLE_MODERN); }
     void setCardStyle(int s) { p.edit().putInt("card_style", s).apply(); }
     int accent() { return p.getInt("accent", 0); }

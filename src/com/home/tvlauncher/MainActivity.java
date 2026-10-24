@@ -65,7 +65,8 @@ public class MainActivity extends Activity {
     private static final String[] ACCENT_NAMES = {"Cyan", "Purple", "Green", "Gold", "Pink", "White"};
     private static final int[] ACCENT_COLORS = {0xFF80DEFF, 0xFFB388FF, 0xFF69F0AE, 0xFFFFD54F, 0xFFFF80AB, 0xFFFFFFFF};
     private static final String[] STYLE_NAMES = {"Modern (banners)", "Premium (large banners)", "Capsule (round icons)",
-            "Mono (soft logos in a bubble)", "Compact (small dark tiles)", "Square (app icons with names)"};
+            "Mono (soft logos in a bubble)", "Compact (small dark tiles)", "Square (app icons with names)",
+            "Tinted (logos on wallpaper-coloured tiles)"};
     private static final int ACCENT = 0xFF42A5F5;
 
     private static final String[] DEFAULT_FAVORITES = {
@@ -77,8 +78,9 @@ public class MainActivity extends Activity {
             "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)",
             "Aurora (art)", "Sunset hills (art)", "Misty mountains (art)", "Moonlit sea (art)",
             "Slideshow (art + your pictures)", "Foggy forest (photo)", "Winter snowfall (animated)",
-            "Above the clouds (art)"};
-    private static final int WP_ART = 8, WP_SLIDESHOW = 12, WP_FOREST = 13, WP_SNOW = 14, WP_HORIZON = 15;
+            "Above the clouds (art)", "Twilight lake (art)"};
+    private static final int WP_ART = 8, WP_SLIDESHOW = 12, WP_FOREST = 13, WP_SNOW = 14, WP_HORIZON = 15,
+            WP_LAKE = 16;
     private static final int WP_PICTURE = 6, WP_VIDEO = 7;
 
     private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
@@ -126,6 +128,8 @@ public class MainActivity extends Activity {
             new Theme("Foggy Forest", 13, 5, Store.STYLE_MONO, Store.FOCUS_GLASS, 1, 0x5CFFFFFF, 0xF21C2624).header(1).time(1),
             new Theme("Winter Snowfall", WP_SNOW, 5, Store.STYLE_COMPACT, Store.FOCUS_MINIMAL, 1, 0x26FFFFFF, 0xF2201A22)
                     .header(2).dock(1).time(2),
+            new Theme("Projectivy", WP_LAKE, 5, Store.STYLE_TINTED, Store.FOCUS_GLASS, 1, 0x26FFFFFF, 0xF21C1630)
+                    .header(5).dock(1).time(1),
             new Theme("Above the Clouds", WP_HORIZON, 5, Store.STYLE_SQUARE, Store.FOCUS_MINIMAL, 1, 0x26FFFFFF, 0xF2121820)
                     .header(3).dock(1).time(0)};
     private boolean applyingTheme;
@@ -304,9 +308,13 @@ public class MainActivity extends Activity {
                 new int[]{showcase ? 0x40000000 : 0x66000000, 0x00000000}));
         int hdr = store.headerStyle();
         View barView = !showcase ? buildTopBar() : hdr == 1 ? buildGreetingBar() : hdr == 2 ? buildPillBar()
-                : hdr == 3 ? buildCenterClockBar() : buildMinimalBar();
+                : hdr == 3 ? buildCenterClockBar() : hdr == 5 ? buildProjectivyBar() : buildMinimalBar();
         bw.addView(barView, new LinearLayout.LayoutParams(-1, -2));
         if (showcase && hdr != 3) bw.setPadding(dp(64), dp(40), dp(56), dp(16));
+        if (showcase && hdr == 5) {
+            bw.setPadding(dp(48), dp(30), dp(56), dp(16));
+            bw.setBackground(null);
+        }
         if (showcase && hdr == 3) {
             bw.setPadding(dp(48), dp(28), dp(56), dp(16));
             bw.setBackground(null);
@@ -524,6 +532,46 @@ public class MainActivity extends Activity {
         return out;
     }
 
+    private int tileTintCache, tileTintKey = -1;
+
+    /** A deep, semi-transparent colour sampled from the lower part of the wallpaper. */
+    private int tileTint() {
+        int key = effectiveWallpaper();
+        if (key == tileTintKey && tileTintCache != 0) return tileTintCache;
+        int col = 0xCC3A2A30;
+        try {
+            Bitmap b = blurredWallpaper();
+            if (b != null) {
+                long r = 0, g = 0, bl = 0; int n = 0;
+                for (int y = b.getHeight() * 2 / 3; y < b.getHeight(); y++) {
+                    for (int x = 0; x < b.getWidth(); x++) {
+                        int c = b.getPixel(x, y);
+                        r += (c >> 16) & 255; g += (c >> 8) & 255; bl += c & 255; n++;
+                    }
+                }
+                if (n > 0) {
+                    int rr = (int) (r / n), gg = (int) (g / n), bb = (int) (bl / n);
+                    // keep the hue, push it darker and richer
+                    float[] hsv = new float[3];
+                    Color.RGBToHSV(rr, gg, bb, hsv);
+                    hsv[1] = Math.min(1f, hsv[1] * 1.4f + 0.15f);
+                    hsv[2] = Math.max(0.22f, Math.min(0.42f, hsv[2] * 0.9f));
+                    col = (Color.HSVToColor(hsv) & 0x00FFFFFF) | 0xD9000000;
+                }
+            }
+        } catch (Exception ignored) { }
+        tileTintCache = col;
+        tileTintKey = key;
+        return col;
+    }
+
+    private static int lighten(int c) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(c, hsv);
+        hsv[2] = Math.min(1f, hsv[2] * 1.6f + 0.08f);
+        return (Color.HSVToColor(hsv) & 0x00FFFFFF) | 0xF2000000;
+    }
+
     private Bitmap forestBitmap;
 
     /** Misty forest photo (CC0, Jay Mantri via Pexels) with a cool, softly desaturated grade. */
@@ -714,6 +762,13 @@ public class MainActivity extends Activity {
 
     /** "Living room · Wi-Fi good · 98 MB today · Sleep in 20 min" */
     private void updateStatusLine() {
+        if (wifiIconView != null && !wifiIconView.isFocused()) {
+            int lvl = networkSummary().equals("Offline") ? -1 : Math.max(0, wifiLevel());
+            boolean focused = wifiIconView.getParent() instanceof View && ((View) wifiIconView.getParent()).isFocused();
+            IconDrawable d = new IconDrawable(IconDrawable.WIFI, networkSummary().equals("Ethernet") ? 3 : lvl);
+            if (focused) d.setColor(0xFF15151A);
+            wifiIconView.setImageDrawable(d);
+        }
         if (statusView == null) return;
         StringBuilder sb = new StringBuilder(store.roomName());
         String net = networkSummary();
@@ -831,13 +886,9 @@ public class MainActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setGravity(Gravity.TOP);
         bar.addView(infoBlock(false), new LinearLayout.LayoutParams(0, -2, 1f));
+        bar.addView(statusPill(true));
+        if (true) return bar;
         LinearLayout pill = new LinearLayout(this);
-        pill.setGravity(Gravity.CENTER_VERTICAL);
-        pill.setPadding(dp(8), dp(2), dp(8), dp(2));
-        GradientDrawable pb = new GradientDrawable();
-        pb.setCornerRadius(dp(24));
-        pb.setColor(0x59D9A9BE);
-        pill.setBackground(pb);
         wifiView = new TextView(this);
         wifiView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         wifiView.setGravity(Gravity.CENTER);
@@ -867,17 +918,86 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL);
         cl.topMargin = top;
         f.addView(col, cl);
-        View gear = smallIcon(android.R.drawable.ic_menu_preferences, "Menu");
-        gear.setAlpha(0.55f);
-        gear.setOnFocusChangeListener((v, has) -> v.setAlpha(has ? 1f : 0.55f));
-        gear.setOnClickListener(v -> openPanel());
-        f.addView(gear, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.TOP));
-        barFocus = gear;
-        wifiView = null;
+        f.addView(statusPill(true), new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
         return f;
     }
 
+    private ImageView wifiIconView;
+
+    /** Projectivy-style status pill: Wi-Fi (shows signal), Inputs, Search, Settings. */
+    private View statusPill(boolean background) {
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(6), dp(3), dp(6), dp(3));
+        if (background) {
+            GradientDrawable pb = new GradientDrawable();
+            pb.setCornerRadius(dp(26));
+            pb.setColor(store.headerStyle() == 2 ? 0x59D9A9BE : 0x33FFFFFF);
+            pill.setBackground(pb);
+        }
+        View wifi = pillIcon(new IconDrawable(IconDrawable.WIFI, wifiLevel()), "Network", this::networkDialog);
+        wifiIconView = (ImageView) ((FrameLayout) wifi).getChildAt(0);
+        pill.addView(wifi);
+        pill.addView(pillIcon(new IconDrawable(IconDrawable.INPUT), "Inputs", this::inputsDialog));
+        pill.addView(pillIcon(new IconDrawable(IconDrawable.SEARCH), "Search", this::openSearch));
+        View gear = pillIcon(new IconDrawable(IconDrawable.GEAR), "Settings", this::openPanel);
+        pill.addView(gear);
+        barFocus = gear;
+        wifiView = null;
+        return pill;
+    }
+
+    private View pillIcon(IconDrawable icon, String description, Runnable action) {
+        FrameLayout f = new FrameLayout(this);
+        f.setFocusable(true);
+        f.setClickable(true);
+        f.setContentDescription(description);
+        ImageView img = new ImageView(this);
+        img.setImageDrawable(icon);
+        f.addView(img, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(Color.WHITE);
+        f.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? circle : null);
+            Drawable d = img.getDrawable();
+            if (d instanceof IconDrawable) ((IconDrawable) d).setColor(has ? 0xFF15151A : Color.WHITE);
+            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).setDuration(140).start();
+        });
+        f.setOnClickListener(v -> action.run());
+        f.setLayoutParams(new LinearLayout.LayoutParams(dp(46), dp(46)));
+        return f;
+    }
+
+    /** Projectivy header: status pill and a big clock, top-right; nothing else on screen. */
+    private View buildProjectivyBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        bar.addView(statusPill(true));
+        TextClock time = new TextClock(this);
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        time.setFormat12Hour(tf);
+        time.setFormat24Hour(tf);
+        time.setTextColor(0xF2FFFFFF);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 44);
+        time.setTypeface(Typeface.create("sans-serif-thin", Typeface.NORMAL));
+        time.setShadowLayer(dp(6), 0, dp(1), 0x55000000);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
+        tl.leftMargin = dp(18);
+        bar.addView(time, tl);
+        greetingView = null;
+        statusView = null;
+        weatherRow = null;
+        dataView = null;
+        sleepButton = new TextView(this);
+        sleepButton.setVisibility(View.GONE);
+        return bar;
+    }
+
     private void addRightIcons(LinearLayout bar, boolean outline) {
+        bar.addView(statusPill(!outline));
+        if (true) return;
         wifiView = null;
         View net = smallIcon(android.R.drawable.ic_menu_share, "Network");
         net.setOnClickListener(v -> networkDialog());
@@ -1370,7 +1490,7 @@ public class MainActivity extends Activity {
     }
 
     private void addWallpaperChoices(List<PanelItem> items, int current, IntResult set, Runnable page) {
-        int[] order = {WP_SLIDESHOW, WP_FOREST, WP_SNOW, WP_HORIZON, WP_ART, WP_ART + 1, WP_ART + 2, WP_ART + 3, 0, 1, 2, 3, 4, 5, WP_PICTURE, WP_VIDEO};
+        int[] order = {WP_SLIDESHOW, WP_LAKE, WP_FOREST, WP_SNOW, WP_HORIZON, WP_ART, WP_ART + 1, WP_ART + 2, WP_ART + 3, 0, 1, 2, 3, 4, 5, WP_PICTURE, WP_VIDEO};
         for (int w : order) {
             PanelItem it = PanelItem.choice(WALLPAPER_NAMES[w], current == w, () -> {
                 if (w == WP_PICTURE && !wallpaperFile().exists()) {
@@ -1656,8 +1776,11 @@ public class MainActivity extends Activity {
         boolean mono = style == Store.STYLE_MONO;
         boolean compact = style == Store.STYLE_COMPACT;
         boolean square = style == Store.STYLE_SQUARE;
-        int w = capsule ? dp(72) : premium ? dp(144) : mono ? dp(66) : compact ? dp(100) : square ? dp(58) : dp(112);
-        int h = capsule ? dp(72) : premium ? dp(81) : mono ? dp(37) : compact ? dp(56) : square ? dp(58) : dp(63);
+        boolean tinted = style == Store.STYLE_TINTED;
+        int w = capsule ? dp(72) : premium ? dp(144) : mono ? dp(66) : compact ? dp(100) : square ? dp(58)
+                : tinted ? dp(118) : dp(112);
+        int h = capsule ? dp(72) : premium ? dp(81) : mono ? dp(37) : compact ? dp(56) : square ? dp(58)
+                : tinted ? dp(66) : dp(63);
         int radius = capsule ? 50 : square ? 16 : compact ? 14 : 18;
         // The glass frame only appears around the selected tile.
         FrameLayout card = new FrameLayout(this);
@@ -1666,6 +1789,8 @@ public class MainActivity extends Activity {
         art.setClipToOutline(true);
         if (mono) {
             art.setBackground(null); // logos float straight on the glass
+        } else if (tinted) {
+            art.setBackground(rounded(tileTint(), 0, 14)); // tile coloured from the wallpaper
         } else if (compact) {
             art.setBackground(rounded(0x99262630, 0, 10)); // small dark translucent tile
         } else if (square) {
@@ -1680,7 +1805,12 @@ public class MainActivity extends Activity {
             art.setBackground(rounded(0x33FFFFFF, 0, 12));
         }
         ImageView img = new ImageView(this);
-        if (mono) {
+        if (tinted) {
+            img.setImageDrawable(monoLogo(a));
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            img.setPadding(dp(14), dp(10), dp(14), dp(10));
+            art.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        } else if (mono) {
             img.setImageDrawable(monoLogo(a));
             img.setScaleType(ImageView.ScaleType.FIT_CENTER);
             art.addView(img, new FrameLayout.LayoutParams(-1, -1));
@@ -1732,7 +1862,7 @@ public class MainActivity extends Activity {
         label.setPadding(0, dp(6), 0, 0);
         label.setShadowLayer(dp(3), 0, dp(1), 0x99000000);
         if (premium) label.setAlpha(0f); // name only shows on the selected tile
-        if (mono || compact) label.setVisibility(View.GONE); // logos only, like a clean dock
+        if (mono || compact || tinted) label.setVisibility(View.GONE); // logos only, like a clean dock
         if (square) {
             label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
             label.setPadding(0, dp(3), 0, 0);
@@ -1747,6 +1877,14 @@ public class MainActivity extends Activity {
         t.setOnFocusChangeListener((v, has) -> {
             if (has) glideTo(v);
             boolean minimal = store.focusStyle() == Store.FOCUS_MINIMAL;
+            if (tinted) {
+                // Projectivy-style: the selected tile brightens, lifts and glows.
+                art.setBackground(rounded(has ? lighten(tileTint()) : tileTint(), has ? 0x99FFFFFF : 0, 14));
+                card.setElevation(has ? dp(14) : 0);
+                card.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).alpha(1f)
+                        .setInterpolator(new android.view.animation.OvershootInterpolator(1.2f)).setDuration(200).start();
+                return;
+            }
             if (mono) {
                 // Round frosted bubble behind the selected logo.
                 GradientDrawable bubble = new GradientDrawable();
@@ -2130,6 +2268,7 @@ public class MainActivity extends Activity {
         if (w == WP_FOREST) return forestDrawable();
         if (w == WP_SNOW) return snowForestDrawable();
         if (w == WP_HORIZON) return new ArtWallpaper(5);
+        if (w == WP_LAKE) return new ArtWallpaper(6);
         if (w >= WP_ART && w < WP_ART + 4) return new ArtWallpaper(w - WP_ART);
         if (w == WP_PICTURE) {
             File f = wallpaperFile();
@@ -2605,7 +2744,7 @@ public class MainActivity extends Activity {
     private int columns() {
         int s = store.cardStyle();
         return s == Store.STYLE_CAPSULE ? 8 : s == Store.STYLE_PREMIUM ? 5 : s == Store.STYLE_MONO ? 7
-                : s == Store.STYLE_COMPACT ? 7 : s == Store.STYLE_SQUARE ? 12 : 6;
+                : s == Store.STYLE_COMPACT ? 7 : s == Store.STYLE_SQUARE ? 12 : s == Store.STYLE_TINTED ? 6 : 6;
     }
 
     private int accentColor() {

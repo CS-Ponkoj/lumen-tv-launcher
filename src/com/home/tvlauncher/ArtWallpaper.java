@@ -49,6 +49,7 @@ final class ArtWallpaper extends Drawable {
             case 3: sea(c, w, h); break;
             case 4: forest(c, w, h); break;
             case 5: horizon(c, w, h); break;
+            case 6: twilightLake(c, w, h); break;
             case STARS_ONLY: stars(c, w, h, 0.85f, 260, 42); break;
             default: aurora(c, w, h); break;
         }
@@ -157,6 +158,79 @@ final class ArtWallpaper extends Drawable {
                     new int[]{0x00D0D9DC, 0x88D0D9DC, 0x00D0D9DC}, null, Shader.TileMode.CLAMP));
             c.drawRect(0, baseY - treeH * 0.6f, w, baseY + h * 0.06f, fog);
         }
+    }
+
+    /** Twilight over a still lake: violet sky, pink cloud streaks, glowing horizon, treeline and its reflection. */
+    private void twilightLake(Canvas c, int w, int h) {
+        float hy = h * 0.53f;
+        Bitmap skyBmp = Bitmap.createBitmap(w, (int) hy, Bitmap.Config.ARGB_8888);
+        Canvas sc = new Canvas(skyBmp);
+        sky(sc, w, (int) hy, new int[]{0xFF2A1F6B, 0xFF5A3C9E, 0xFF9C6FC8, 0xFFE7A6C2, 0xFFFFD6A0},
+                new float[]{0f, 0.35f, 0.65f, 0.88f, 1f});
+        Paint glowP = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glowP.setShader(new RadialGradient(w * 0.5f, hy, w * 0.35f, 0xCCFFE2B0, 0x00FFE2B0, Shader.TileMode.CLAMP));
+        sc.drawRect(0, 0, w, hy, glowP);
+        Paint cloud = new Paint(Paint.ANTI_ALIAS_FLAG);
+        cloud.setMaskFilter(new BlurMaskFilter(h * 0.012f, BlurMaskFilter.Blur.NORMAL));
+        Random r = new Random(21);
+        for (int i = 0; i < 70; i++) {
+            float cy = hy * (0.08f + r.nextFloat() * 0.8f);
+            float cx = r.nextFloat() * w, len = w * (0.06f + r.nextFloat() * 0.22f);
+            boolean pink = r.nextFloat() < 0.55f;
+            int col = pink ? 0xF2A6D0 : 0x3B2A70;
+            cloud.setColor(((pink ? 70 + r.nextInt(90) : 60 + r.nextInt(80)) << 24) | col);
+            float th = h * (0.006f + r.nextFloat() * 0.018f);
+            float tilt = (cx - w / 2f) / w * h * 0.08f;
+            Path streak = new Path();
+            streak.moveTo(cx - len, cy - tilt);
+            streak.quadTo(cx, cy - th, cx + len, cy + tilt);
+            streak.quadTo(cx, cy + th, cx - len, cy - tilt);
+            sc.drawPath(streak, cloud);
+        }
+        // treeline on the horizon
+        // soft, rounded treeline (overlapping crowns), with a gap where the sun sets
+        Paint trees = new Paint(Paint.ANTI_ALIAS_FLAG);
+        trees.setColor(0xFF120E1E);
+        sc.drawRect(0, hy - h * 0.012f, w, hy, trees);
+        Random tr = new Random(4);
+        for (float x = -w * 0.02f; x <= w * 1.02f; x += w / 260f) {
+            if (x > w * 0.44f && x < w * 0.485f) continue;
+            float base = (float) Math.abs(Math.sin(x / w * 5.3)) * 0.5f + 0.5f;
+            float crown = h * (0.006f + tr.nextFloat() * 0.012f) * (0.7f + base * 0.6f);
+            float top = hy - h * 0.01f - crown * (0.8f + tr.nextFloat() * 1.6f);
+            sc.drawCircle(x, top + crown, crown, trees);
+            if (tr.nextFloat() < 0.04f) { // an occasional taller spruce
+                Path sp = new Path();
+                float th = crown * 2.2f;
+                sp.moveTo(x, top - th * 0.6f);
+                sp.lineTo(x - crown * 0.9f, top + crown);
+                sp.lineTo(x + crown * 0.9f, top + crown);
+                sp.close();
+                sc.drawPath(sp, trees);
+            }
+        }
+        c.drawBitmap(skyBmp, 0, 0, null);
+        // reflection: the sky flipped and darkened, with soft ripples
+        c.save();
+        c.translate(0, hy * 2);
+        c.scale(1, -1);
+        Paint refl = new Paint(Paint.FILTER_BITMAP_FLAG);
+        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+        cm.setScale(0.55f, 0.5f, 0.45f, 1f);
+        refl.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
+        c.drawBitmap(skyBmp, 0, 0, refl);
+        c.restore();
+        Paint water = new Paint();
+        water.setShader(new LinearGradient(0, hy, 0, h, 0x00120A10, 0xE6140C0C, Shader.TileMode.CLAMP));
+        c.drawRect(0, hy, w, h, water);
+        Paint ripple = new Paint(Paint.ANTI_ALIAS_FLAG);
+        for (int i = 0; i < 60; i++) {
+            ripple.setColor(((12 + r.nextInt(20)) << 24) | 0xFFE6C8);
+            float y = hy + h * 0.01f + r.nextFloat() * h * 0.3f;
+            float x = r.nextFloat() * w, len = w * (0.03f + r.nextFloat() * 0.12f);
+            c.drawRect(x - len, y, x + len, y + Math.max(1, h * 0.002f), ripple);
+        }
+        skyBmp.recycle();
     }
 
     /** Above the clouds at dusk: dark sky, glowing blue-orange horizon, a lone peak, a sea of cloud. */

@@ -62,7 +62,9 @@ import java.util.Locale;
 import java.util.Map;
 
 public class MainActivity extends Activity {
-    private static final int COLUMNS = 6;
+    private static final String[] ACCENT_NAMES = {"Cyan", "Purple", "Green", "Gold", "Pink", "White"};
+    private static final int[] ACCENT_COLORS = {0xFF80DEFF, 0xFFB388FF, 0xFF69F0AE, 0xFFFFD54F, 0xFFFF80AB, 0xFFFFFFFF};
+    private static final String[] STYLE_NAMES = {"Modern (banners)", "Premium (large banners)", "Capsule (round icons)"};
     private static final int ACCENT = 0xFF42A5F5;
 
     private static final String[] DEFAULT_FAVORITES = {
@@ -146,6 +148,10 @@ public class MainActivity extends Activity {
             }
         };
         try { cm.registerDefaultNetworkCallback(netCallback); } catch (Exception ignored) { }
+
+        if (checkSelfPermission(EPG_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{EPG_PERMISSION}, 1);
+        }
     }
 
     @Override
@@ -233,6 +239,34 @@ public class MainActivity extends Activity {
             content.addView(tileRow(favs, true));
         }
 
+        // Continue watching (system "Watch Next" list, read locally)
+        if (store.continueWatching()) {
+            List<WatchItem> watch = loadWatchNext();
+            if (!watch.isEmpty()) {
+                content.addView(sectionTitle("Continue watching"));
+                HorizontalScrollView hs = new HorizontalScrollView(this);
+                hs.setHorizontalScrollBarEnabled(false);
+                hs.setClipToPadding(false);
+                hs.setClipChildren(false);
+                LinearLayout row = new LinearLayout(this);
+                row.setClipChildren(false);
+                row.setClipToPadding(false);
+                row.setPadding(dp(8), dp(16), dp(8), dp(14));
+                for (WatchItem w : watch) row.addView(watchTile(w));
+                hs.addView(row);
+                content.addView(hs);
+            }
+        }
+
+        // Your own categories
+        for (String cat : store.categories()) {
+            List<String> pk = new ArrayList<>();
+            for (String p : store.categoryApps(cat)) if (apps.containsKey(p)) pk.add(p);
+            if (pk.isEmpty()) continue;
+            content.addView(sectionTitle(cat));
+            content.addView(tileRow(pk, false));
+        }
+
         // Recent
         List<String> rec = new ArrayList<>();
         for (String p : store.recents()) if (apps.containsKey(p)) rec.add(p);
@@ -267,7 +301,7 @@ public class MainActivity extends Activity {
         allTitle = sectionTitle("All apps");
         content.addView(allTitle);
         allGrid = new GridLayout(this);
-        allGrid.setColumnCount(COLUMNS);
+        allGrid.setColumnCount(columns());
         allGrid.setClipChildren(false);
         allGrid.setClipToPadding(false);
         allGrid.setPadding(dp(8), dp(16), dp(8), dp(14));
@@ -396,15 +430,32 @@ public class MainActivity extends Activity {
         t.setClipChildren(false);
         t.setClipToPadding(false);
 
-        int w = dp(112), h = dp(63);
+        int style = store.cardStyle();
+        boolean capsule = style == Store.STYLE_CAPSULE;
+        boolean premium = style == Store.STYLE_PREMIUM;
+        int w = capsule ? dp(72) : premium ? dp(144) : dp(112);
+        int h = capsule ? dp(72) : premium ? dp(81) : dp(63);
+        int radius = capsule ? 50 : 18;
         // The glass frame only appears around the selected tile.
         FrameLayout card = new FrameLayout(this);
         card.setPadding(dp(9), dp(9), dp(9), dp(9));
         FrameLayout art = new FrameLayout(this);
         art.setClipToOutline(true);
-        art.setBackground(rounded(0x33FFFFFF, 0, 12));
+        if (capsule) {
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(0x2EFFFFFF);
+            circle.setStroke(dp(1), 0x40FFFFFF);
+            art.setBackground(circle);
+        } else {
+            art.setBackground(rounded(0x33FFFFFF, 0, 12));
+        }
         ImageView img = new ImageView(this);
-        if (a.banner != null) {
+        if (capsule) {
+            img.setImageDrawable(a.icon);
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            art.addView(img, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER));
+        } else if (a.banner != null) {
             img.setImageDrawable(a.banner);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             art.addView(img, new FrameLayout.LayoutParams(-1, -1));
@@ -427,19 +478,21 @@ public class MainActivity extends Activity {
         label.setGravity(Gravity.CENTER_HORIZONTAL);
         label.setPadding(0, dp(6), 0, 0);
         label.setShadowLayer(dp(3), 0, dp(1), 0x99000000);
-        t.addView(label, new LinearLayout.LayoutParams(w + dp(12), -2));
+        if (premium) label.setAlpha(0f); // Premium: name only shows on the selected tile
+        t.addView(label, new LinearLayout.LayoutParams(Math.max(w + dp(12), dp(96)), -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.setMargins(dp(4), dp(4), dp(4), dp(4));
         t.setLayoutParams(lp);
 
         t.setOnFocusChangeListener((v, has) -> {
-            card.setBackground(has ? glass(true, 18) : null);
+            card.setBackground(has ? glass(true, radius) : null);
             card.setElevation(has ? dp(12) : 0);
             card.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).alpha(has ? 1f : 0.85f)
                     .setInterpolator(new android.view.animation.OvershootInterpolator(1.4f))
                     .setDuration(220).start();
-            label.animate().translationY(has ? dp(4) : 0).setDuration(220).start();
+            label.animate().translationY(has ? dp(4) : 0).alpha(premium && !has ? 0f : 1f)
+                    .setDuration(220).start();
             label.setTextColor(has ? Color.WHITE : 0xB3FFFFFF);
             label.setTypeface(has ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         });
@@ -518,6 +571,9 @@ public class MainActivity extends Activity {
         List<String> opts = new ArrayList<>();
         opts.add(fav ? "Remove from Favorites" : "Add to Favorites");
         if (fav) { opts.add("Move left"); opts.add("Move right"); }
+        opts.add("Add to category…");
+        for (String c : store.categories())
+            if (store.categoryApps(c).contains(a.pkg)) opts.add("Remove from " + c);
         opts.add("Rename");
         opts.add("Hide from All apps");
         opts.add("App info");
@@ -528,7 +584,14 @@ public class MainActivity extends Activity {
                     String o = opts.get(which);
                     List<String> f = store.favorites();
                     int idx = f.indexOf(a.pkg);
+                    if (o.startsWith("Remove from ") && !o.equals("Remove from Favorites")) {
+                        String c = o.substring("Remove from ".length());
+                        List<String> ca = store.categoryApps(c); ca.remove(a.pkg); store.setCategoryApps(c, ca);
+                        rebuild();
+                        return;
+                    }
                     switch (o) {
+                        case "Add to category…": addToCategoryDialog(a); return;
                         case "Add to Favorites": f.add(a.pkg); store.setFavorites(f); break;
                         case "Remove from Favorites": f.remove(a.pkg); store.setFavorites(f); break;
                         case "Move left":
@@ -696,16 +759,23 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ ⋯ menu
 
     private void moreMenu() {
-        String[] opts = {"Wallpaper", "Hidden apps", "Rename inputs", "Home button setup",
+        String[] opts = {"Wallpaper", "Card style", "Accent colour", "Categories",
+                (store.continueWatching() ? "Hide" : "Show") + " Continue watching",
+                "Screensaver", "Hidden apps", "Rename inputs", "Home button setup",
                 "Open Google TV home", "About My Home"};
         new AlertDialog.Builder(this).setItems(opts, (d, w) -> {
             switch (w) {
                 case 0: wallpaperDialog(); break;
-                case 1: hiddenDialog(); break;
-                case 2: renameInputsDialog(); break;
-                case 3: homeSetupDialog(); break;
-                case 4: openGoogleHome(); break;
-                case 5: aboutDialog(); break;
+                case 1: styleDialog(); break;
+                case 2: accentDialog(); break;
+                case 3: categoriesDialog(); break;
+                case 4: store.setContinueWatching(!store.continueWatching()); rebuild(); break;
+                case 5: screensaverDialog(); break;
+                case 6: hiddenDialog(); break;
+                case 7: renameInputsDialog(); break;
+                case 8: homeSetupDialog(); break;
+                case 9: openGoogleHome(); break;
+                case 10: aboutDialog(); break;
             }
         }).show();
     }
@@ -796,7 +866,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("My Home 1.0")
+        new AlertDialog.Builder(this).setTitle("My Home 1.1")
                 .setMessage("A simple, ad-free home screen.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -831,13 +901,250 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static final String EPG_PERMISSION = "com.android.providers.tv.permission.READ_EPG_DATA";
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        rebuild();
+    }
+
+    private int columns() {
+        int s = store.cardStyle();
+        return s == Store.STYLE_CAPSULE ? 8 : s == Store.STYLE_PREMIUM ? 5 : 6;
+    }
+
+    private int accentColor() {
+        int a = store.accent();
+        return ACCENT_COLORS[a >= 0 && a < ACCENT_COLORS.length ? a : 0];
+    }
+
+    private void styleDialog() {
+        new AlertDialog.Builder(this).setTitle("Card style")
+                .setSingleChoiceItems(STYLE_NAMES, store.cardStyle(), (d, w) -> {
+                    store.setCardStyle(w); d.dismiss(); rebuild();
+                }).show();
+    }
+
+    private void accentDialog() {
+        new AlertDialog.Builder(this).setTitle("Accent colour")
+                .setSingleChoiceItems(ACCENT_NAMES, store.accent(), (d, w) -> {
+                    store.setAccent(w); d.dismiss(); rebuild();
+                }).show();
+    }
+
+    private void screensaverDialog() {
+        new AlertDialog.Builder(this).setTitle("Screensaver")
+                .setMessage("My Home includes an OLED-safe clock screensaver: a dim clock on black "
+                        + "that moves every 30 seconds to prevent burn-in.\n\n"
+                        + "To use it, choose \"My Home clock\" in the screensaver settings.")
+                .setPositiveButton("Open screensaver settings", (d, w) -> {
+                    Intent i = new Intent(Settings.ACTION_DREAM_SETTINGS);
+                    if (pm.resolveActivity(i, 0) == null) i = new Intent(Settings.ACTION_DISPLAY_SETTINGS);
+                    safeStart(i);
+                })
+                .setNegativeButton("Close", null).show();
+    }
+
+    // ---- categories
+    private void addToCategoryDialog(App a) {
+        List<String> cats = store.categories();
+        List<String> opts = new ArrayList<>(cats);
+        opts.add("+ New category…");
+        new AlertDialog.Builder(this).setTitle("Add " + a.label + " to")
+                .setItems(opts.toArray(new String[0]), (d, w) -> {
+                    if (w == cats.size()) {
+                        textDialog("New category", "", "e.g. Kids, Games, Music", name -> {
+                            String n = name.replace("|", "").trim();
+                            if (n.isEmpty()) return;
+                            List<String> c = store.categories();
+                            if (!c.contains(n)) { c.add(n); store.setCategories(c); }
+                            addAppToCategory(n, a.pkg);
+                        });
+                    } else {
+                        addAppToCategory(cats.get(w), a.pkg);
+                    }
+                }).show();
+    }
+
+    private void addAppToCategory(String cat, String pkg) {
+        List<String> l = store.categoryApps(cat);
+        if (!l.contains(pkg)) l.add(pkg);
+        store.setCategoryApps(cat, l);
+        toast("Added to " + cat);
+        rebuild();
+    }
+
+    private void categoriesDialog() {
+        List<String> cats = store.categories();
+        List<String> opts = new ArrayList<>(cats);
+        opts.add("+ New category…");
+        new AlertDialog.Builder(this).setTitle("Categories")
+                .setItems(opts.toArray(new String[0]), (d, w) -> {
+                    if (w == cats.size()) {
+                        textDialog("New category", "", "e.g. Kids, Games, Music", name -> {
+                            String n = name.replace("|", "").trim();
+                            if (n.isEmpty()) return;
+                            List<String> c = store.categories();
+                            if (!c.contains(n)) { c.add(n); store.setCategories(c); }
+                            toast("Long-press any app → Add to category… to fill it");
+                            rebuild();
+                        });
+                    } else {
+                        categoryActions(cats.get(w));
+                    }
+                }).show();
+    }
+
+    private void categoryActions(String cat) {
+        String[] opts = {"Rename", "Move up", "Move down", "Delete"};
+        new AlertDialog.Builder(this).setTitle(cat).setItems(opts, (d, w) -> {
+            List<String> c = store.categories();
+            int i = c.indexOf(cat);
+            switch (w) {
+                case 0:
+                    textDialog("Rename " + cat, cat, "", name -> {
+                        String n = name.replace("|", "").trim();
+                        if (!n.isEmpty() && !c.contains(n)) store.renameCategory(cat, n);
+                        rebuild();
+                    });
+                    return;
+                case 1: if (i > 0) { Collections.swap(c, i, i - 1); store.setCategories(c); } break;
+                case 2: if (i >= 0 && i < c.size() - 1) { Collections.swap(c, i, i + 1); store.setCategories(c); } break;
+                case 3: store.deleteCategory(cat); break;
+            }
+            rebuild();
+        }).show();
+    }
+
+    // ---- continue watching
+    private static final class WatchItem {
+        String title, pkg, intentUri;
+        long position, duration;
+        Drawable poster;
+    }
+
+    private List<WatchItem> loadWatchNext() {
+        List<WatchItem> out = new ArrayList<>();
+        if (checkSelfPermission(EPG_PERMISSION) != PackageManager.PERMISSION_GRANTED) return out;
+        String[] cols = {
+                TvContract.WatchNextPrograms.COLUMN_TITLE,
+                TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME,
+                TvContract.WatchNextPrograms.COLUMN_INTENT_URI,
+                TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI,
+                TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
+                TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS};
+        try (android.database.Cursor c = getContentResolver().query(
+                TvContract.WatchNextPrograms.CONTENT_URI, cols, null, null,
+                TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS + " DESC")) {
+            if (c == null) return out;
+            while (c.moveToNext() && out.size() < 12) {
+                WatchItem w = new WatchItem();
+                w.title = c.getString(0);
+                w.pkg = c.getString(1);
+                w.intentUri = c.getString(2);
+                w.position = c.getLong(4);
+                w.duration = c.getLong(5);
+                String poster = c.getString(3);
+                // Only local posters: My Home has no internet permission.
+                if (poster != null && (poster.startsWith("content:") || poster.startsWith("android.resource:"))) {
+                    try (java.io.InputStream in = getContentResolver().openInputStream(Uri.parse(poster))) {
+                        Bitmap bm = BitmapFactory.decodeStream(in);
+                        if (bm != null) w.poster = new BitmapDrawable(getResources(), bm);
+                    } catch (Exception ignored) { }
+                }
+                if (w.title != null && w.intentUri != null) out.add(w);
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    private View watchTile(WatchItem wi) {
+        App app = apps.get(wi.pkg);
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setFocusable(true);
+        t.setClickable(true);
+        t.setClipChildren(false);
+        t.setClipToPadding(false);
+        int w = dp(160), h = dp(90);
+
+        FrameLayout card = new FrameLayout(this);
+        card.setPadding(dp(9), dp(9), dp(9), dp(9));
+        FrameLayout art = new FrameLayout(this);
+        art.setClipToOutline(true);
+        art.setBackground(rounded(0xFF1E2430, 0, 12));
+        ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        if (wi.poster != null) img.setImageDrawable(wi.poster);
+        else if (app != null && app.banner != null) { img.setImageDrawable(app.banner); img.setAlpha(0.45f); }
+        art.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        if (wi.poster == null) {
+            TextView tt = new TextView(this);
+            tt.setText(wi.title);
+            tt.setTextColor(Color.WHITE);
+            tt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            tt.setTypeface(Typeface.DEFAULT_BOLD);
+            tt.setMaxLines(2);
+            tt.setEllipsize(TextUtils.TruncateAt.END);
+            tt.setShadowLayer(dp(4), 0, dp(1), 0xCC000000);
+            tt.setPadding(dp(10), dp(8), dp(10), dp(8));
+            art.addView(tt, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        }
+        if (wi.duration > 0 && wi.position > 0) {
+            FrameLayout bar = new FrameLayout(this);
+            bar.setBackgroundColor(0x55FFFFFF);
+            View fill = new View(this);
+            fill.setBackgroundColor(accentColor());
+            int fw = (int) (w * Math.min(1f, wi.position / (float) wi.duration));
+            bar.addView(fill, new FrameLayout.LayoutParams(fw, -1));
+            art.addView(bar, new FrameLayout.LayoutParams(-1, dp(4), Gravity.BOTTOM));
+        }
+        card.addView(art, new FrameLayout.LayoutParams(w, h));
+        card.setAlpha(0.85f);
+        t.addView(card);
+
+        TextView label = new TextView(this);
+        label.setText(app != null ? app.label + " · " + wi.title : wi.title);
+        label.setTextColor(0xB3FFFFFF);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setGravity(Gravity.CENTER_HORIZONTAL);
+        label.setPadding(0, dp(6), 0, 0);
+        label.setShadowLayer(dp(3), 0, dp(1), 0x99000000);
+        t.addView(label, new LinearLayout.LayoutParams(w + dp(18), -2));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        t.setLayoutParams(lp);
+        t.setOnFocusChangeListener((v, has) -> {
+            card.setBackground(has ? glass(true, 18) : null);
+            card.setElevation(has ? dp(12) : 0);
+            card.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f).alpha(has ? 1f : 0.85f)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator(1.4f))
+                    .setDuration(220).start();
+            label.setTextColor(has ? Color.WHITE : 0xB3FFFFFF);
+        });
+        t.setOnClickListener(v -> {
+            try {
+                Intent i = Intent.parseUri(wi.intentUri, Intent.URI_INTENT_SCHEME);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception e) {
+                if (wi.pkg != null) launch(wi.pkg);
+            }
+        });
+        return t;
+    }
+
     /** Frosted, tinted glass card. Focused = brighter fill, white rim and a soft cyan glow. */
     private Drawable glass(boolean focused, int radiusDp) {
         int glowPad = dp(4);
         GradientDrawable glowRing = new GradientDrawable();
         glowRing.setCornerRadius(dp(radiusDp + 4));
         glowRing.setColor(0);
-        glowRing.setStroke(glowPad, focused ? 0xAA80DEFF : 0);
+        glowRing.setStroke(glowPad, focused ? (accentColor() & 0x00FFFFFF) | 0xAA000000 : 0);
 
         GradientDrawable body = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 focused ? new int[]{0x55FFFFFF, 0x2EFFFFFF} : new int[]{0x26FFFFFF, 0x0FFFFFFF});
@@ -848,9 +1155,17 @@ public class MainActivity extends Activity {
                 new int[]{focused ? 0x33FFFFFF : 0x1AFFFFFF, 0x00FFFFFF});
         sheen.setCornerRadius(dp(radiusDp));
 
-        LayerDrawable ld = new LayerDrawable(new Drawable[]{glowRing, body, sheen});
+        // Thin dark inner ring keeps the white border visible even on white banners.
+        GradientDrawable inner = new GradientDrawable();
+        inner.setCornerRadius(Math.max(0, dp(radiusDp) - dp(3)));
+        inner.setColor(0);
+        inner.setStroke(focused ? dp(2) : 0, 0x99000000);
+
+        LayerDrawable ld = new LayerDrawable(new Drawable[]{glowRing, body, sheen, inner});
         ld.setLayerInset(1, glowPad, glowPad, glowPad, glowPad);
         ld.setLayerInset(2, glowPad, glowPad, glowPad, glowPad + dp(40));
+        int in = glowPad + dp(3);
+        ld.setLayerInset(3, in, in, in, in);
         return ld;
     }
 

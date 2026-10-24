@@ -59,6 +59,39 @@ final class Store {
         else p.edit().putString("input_" + id, name.trim()).apply();
     }
 
+    // ---- custom categories ----
+    List<String> categories() {
+        String s = p.getString("categories", "");
+        List<String> out = new ArrayList<>();
+        if (!s.isEmpty()) out.addAll(Arrays.asList(s.split("\\|")));
+        return out;
+    }
+    void setCategories(List<String> l) { p.edit().putString("categories", String.join("|", l)).apply(); }
+    List<String> categoryApps(String name) { return list("cat_" + name); }
+    void setCategoryApps(String name, List<String> l) { putList("cat_" + name, l); }
+    void deleteCategory(String name) {
+        List<String> c = categories(); c.remove(name); setCategories(c);
+        p.edit().remove("cat_" + name).apply();
+    }
+    void renameCategory(String from, String to) {
+        List<String> c = categories();
+        int i = c.indexOf(from);
+        if (i < 0) return;
+        c.set(i, to);
+        setCategories(c);
+        setCategoryApps(to, categoryApps(from));
+        p.edit().remove("cat_" + from).apply();
+    }
+
+    // ---- look ----
+    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2;
+    int cardStyle() { return p.getInt("card_style", STYLE_MODERN); }
+    void setCardStyle(int s) { p.edit().putInt("card_style", s).apply(); }
+    int accent() { return p.getInt("accent", 0); }
+    void setAccent(int a) { p.edit().putInt("accent", a).apply(); }
+    boolean continueWatching() { return p.getBoolean("continue_watching", true); }
+    void setContinueWatching(boolean b) { p.edit().putBoolean("continue_watching", b).apply(); }
+
     // ---- misc ----
     int wallpaper() { return p.getInt("wallpaper", 0); }
     void setWallpaper(int i) { p.edit().putInt("wallpaper", i).apply(); }

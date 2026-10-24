@@ -107,13 +107,26 @@ final class Store {
     void setSlideMinutes(int m) { p.edit().putInt("slide_minutes", m).apply(); }
     int slideIndex() { return p.getInt("slide_index", 0); }
     void setSlideIndex(int i) { p.edit().putInt("slide_index", i).apply(); }
+    /** -1 = Custom (the look was changed by hand after picking a theme). */
+    int theme() { return p.getInt("theme", 0); }
+    void setTheme(int t) { p.edit().putInt("theme", t).apply(); }
+    int glassTint() { return p.getInt("glass_tint", 0x26FFFFFF); }
+    void setGlassTint(int c) { p.edit().putInt("glass_tint", c).apply(); }
+    int panelColor() { return p.getInt("panel_color", 0xF2181B22); }
+    void setPanelColor(int c) { p.edit().putInt("panel_color", c).apply(); }
+    /** 0 = clock on the right, 1 = big clock + greeting on the left (Forest look). */
+    int headerStyle() { return p.getInt("header_style", 0); }
+    void setHeaderStyle(int s) { p.edit().putInt("header_style", s).apply(); }
+    /** 0 = frosted glass dock, 1 = apps float directly on the wallpaper. */
+    int dockStyle() { return p.getInt("dock_style", 0); }
+    void setDockStyle(int s) { p.edit().putInt("dock_style", s).apply(); }
     boolean sounds() { return p.getBoolean("sounds", true); }
     void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
     int border() { return p.getInt("border", 1); }
     void setBorder(int b) { p.edit().putInt("border", b).apply(); }
 
     // ---- look ----
-    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2;
+    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2, STYLE_MONO = 3, STYLE_COMPACT = 4, STYLE_SQUARE = 5;
     int cardStyle() { return p.getInt("card_style", STYLE_MODERN); }
     void setCardStyle(int s) { p.edit().putInt("card_style", s).apply(); }
     int accent() { return p.getInt("accent", 0); }

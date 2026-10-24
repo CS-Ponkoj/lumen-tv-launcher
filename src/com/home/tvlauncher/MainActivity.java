@@ -64,7 +64,8 @@ import java.util.Map;
 public class MainActivity extends Activity {
     private static final String[] ACCENT_NAMES = {"Cyan", "Purple", "Green", "Gold", "Pink", "White"};
     private static final int[] ACCENT_COLORS = {0xFF80DEFF, 0xFFB388FF, 0xFF69F0AE, 0xFFFFD54F, 0xFFFF80AB, 0xFFFFFFFF};
-    private static final String[] STYLE_NAMES = {"Modern (banners)", "Premium (large banners)", "Capsule (round icons)"};
+    private static final String[] STYLE_NAMES = {"Modern (banners)", "Premium (large banners)", "Capsule (round icons)",
+            "Mono (soft logos in a bubble)", "Compact (small dark tiles)", "Square (app icons with names)"};
     private static final int ACCENT = 0xFF42A5F5;
 
     private static final String[] DEFAULT_FAVORITES = {
@@ -75,8 +76,9 @@ public class MainActivity extends Activity {
             "Midnight", "Deep blue", "Charcoal", "Forest", "Plum", "Black",
             "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)",
             "Aurora (art)", "Sunset hills (art)", "Misty mountains (art)", "Moonlit sea (art)",
-            "Slideshow (art + your pictures)"};
-    private static final int WP_ART = 8, WP_SLIDESHOW = 12;
+            "Slideshow (art + your pictures)", "Foggy forest (photo)", "Winter snowfall (animated)",
+            "Above the clouds (art)"};
+    private static final int WP_ART = 8, WP_SLIDESHOW = 12, WP_FOREST = 13, WP_SNOW = 14, WP_HORIZON = 15;
     private static final int WP_PICTURE = 6, WP_VIDEO = 7;
 
     private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
@@ -100,6 +102,33 @@ public class MainActivity extends Activity {
             {0x7700E676, 0x6600BFA5, 0x55C6FF00},
             {0x88E040FB, 0x66FF4081, 0x557C4DFF},
             {0x442979FF, 0x337C4DFF, 0x2200E5FF}};
+
+    /** A theme sets the whole look at once; anything can still be changed afterwards. */
+    private static final class Theme {
+        final String name; final int wallpaper, accent, card, focus, border, glassTint, panelColor;
+        int header, dock, timeFormat = -1;
+        Theme(String name, int wallpaper, int accent, int card, int focus, int border, int glassTint, int panelColor) {
+            this.name = name; this.wallpaper = wallpaper; this.accent = accent; this.card = card;
+            this.focus = focus; this.border = border; this.glassTint = glassTint; this.panelColor = panelColor;
+        }
+        Theme header(int h) { header = h; return this; }
+        Theme dock(int d) { dock = d; return this; }
+        Theme time(int t) { timeFormat = t; return this; }
+    }
+    private static final Theme[] THEMES = {
+            new Theme("Northern Lights", 8, 0, Store.STYLE_MODERN, Store.FOCUS_GLASS, 1, 0x26FFFFFF, 0xF2181B22),
+            new Theme("Golden Dusk", 9, 3, Store.STYLE_MODERN, Store.FOCUS_GLASS, 1, 0x33FFC890, 0xF2261420),
+            new Theme("Moonlit Sea", 11, 5, Store.STYLE_PREMIUM, Store.FOCUS_MINIMAL, 1, 0x26B8CCFF, 0xF20E1626),
+            new Theme("Misty Peaks", 10, 2, Store.STYLE_MODERN, Store.FOCUS_MINIMAL, 1, 0x33FFFFFF, 0xF2172230),
+            new Theme("Neon Night", 0, 4, Store.STYLE_CAPSULE, Store.FOCUS_GLASS, 2, 0x2EFF7AE0, 0xF2190E28),
+            new Theme("Pure Black", 5, 5, Store.STYLE_MODERN, Store.FOCUS_MINIMAL, 0, 0x14FFFFFF, 0xFA000000),
+            new Theme("Gallery", 12, 0, Store.STYLE_MODERN, Store.FOCUS_GLASS, 1, 0x26FFFFFF, 0xF2181B22),
+            new Theme("Foggy Forest", 13, 5, Store.STYLE_MONO, Store.FOCUS_GLASS, 1, 0x5CFFFFFF, 0xF21C2624).header(1).time(1),
+            new Theme("Winter Snowfall", WP_SNOW, 5, Store.STYLE_COMPACT, Store.FOCUS_MINIMAL, 1, 0x26FFFFFF, 0xF2201A22)
+                    .header(2).dock(1).time(2),
+            new Theme("Above the Clouds", WP_HORIZON, 5, Store.STYLE_SQUARE, Store.FOCUS_MINIMAL, 1, 0x26FFFFFF, 0xF2121820)
+                    .header(3).dock(1).time(0)};
+    private boolean applyingTheme;
 
     private Store store;
     private PackageManager pm;
@@ -144,6 +173,7 @@ public class MainActivity extends Activity {
         @Override public void run() {
             updateSleepLabel();
             updateDataUsage();
+            if (greetingView != null) greetingView.setText(greeting());
             if (effectiveWallpaper() != appliedWallpaper) rebuild(); // day/night switch
             handler.postDelayed(this, 30_000);
         }
@@ -270,7 +300,15 @@ public class MainActivity extends Activity {
         bw.setPadding(dp(40), dp(24), dp(40), dp(16));
         bw.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{showcase ? 0x40000000 : 0x66000000, 0x00000000}));
-        bw.addView(showcase ? buildMinimalBar() : buildTopBar(), new LinearLayout.LayoutParams(-1, -2));
+        int hdr = store.headerStyle();
+        View barView = !showcase ? buildTopBar() : hdr == 1 ? buildGreetingBar() : hdr == 2 ? buildPillBar()
+                : hdr == 3 ? buildCenterClockBar() : buildMinimalBar();
+        bw.addView(barView, new LinearLayout.LayoutParams(-1, -2));
+        if (showcase && hdr == 1) bw.setPadding(dp(70), dp(44), dp(56), dp(16));
+        if (showcase && (hdr == 2 || hdr == 3)) {
+            bw.setPadding(dp(48), dp(28), dp(56), dp(16));
+            bw.setBackground(null);
+        }
         barWrap = bw;
         barShown = true;
         root.addView(bw, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
@@ -290,16 +328,36 @@ public class MainActivity extends Activity {
                 dockApps = new ArrayList<>(apps.keySet());
                 if (dockApps.size() > 6) dockApps = dockApps.subList(0, 6);
             }
-            GlassPanel d = new GlassPanel(this, blurredWallpaper(), dp(28));
+            boolean plain = store.dockStyle() == 1;
+            GlassPanel d = new GlassPanel(this, plain ? null : blurredWallpaper(), dp(28));
+            d.setPlain(plain);
+            d.setGlassTint(store.glassTint());
             d.setClipChildren(false);
             d.setClipToPadding(false);
             d.setPadding(dp(14), dp(2), dp(14), dp(0));
-            d.addView(tileRow(dockApps, favs.isEmpty() ? null : "fav", true));
+            View dockRow = tileRow(dockApps, favs.isEmpty() ? null : "fav", true);
+            if (plain) {
+                d.setPadding(0, 0, 0, 0);
+                ViewGroup rg = (ViewGroup) ((HorizontalScrollView) dockRow).getChildAt(0);
+                rg.setPadding(dp(4), dp(6), dp(4), dp(6));
+            } else if (store.cardStyle() == Store.STYLE_MONO) {
+                // Slim dock: logos spaced out, little vertical padding.
+                d.setPadding(dp(24), dp(4), dp(24), dp(4));
+                ViewGroup rowGroup = (ViewGroup) ((HorizontalScrollView) dockRow).getChildAt(0);
+                rowGroup.setPadding(dp(4), dp(6), dp(4), dp(6));
+                for (int i = 0; i < rowGroup.getChildCount(); i++) {
+                    LinearLayout.LayoutParams tl = (LinearLayout.LayoutParams) rowGroup.getChildAt(i).getLayoutParams();
+                    tl.setMargins(dp(16), 0, dp(16), 0);
+                }
+            }
+            d.addView(dockRow);
             content.addView(d, new LinearLayout.LayoutParams(-1, -2));
             dock = d;
             final ScrollView sc = scroll;
             sc.post(() -> {
-                int h = sc.getHeight() - d.getHeight() - dp(30);
+                // Forest look floats the dock higher, with scenery visible underneath.
+                int gap = store.headerStyle() == 1 ? dp(120) : store.dockStyle() == 1 ? dp(14) : dp(30);
+                int h = sc.getHeight() - d.getHeight() - gap;
                 spacer.getLayoutParams().height = Math.max(dp(140), h);
                 spacer.requestLayout();
                 // Re-assert focus once the dock has moved into place.
@@ -425,6 +483,292 @@ public class MainActivity extends Activity {
         });
     }
 
+    private final Map<String, Drawable> monoCache = new HashMap<>();
+
+    /**
+     * Turns an app banner into a clean white logo on a transparent background:
+     * the banner's background colour (sampled from its edges) becomes transparent,
+     * everything that differs from it becomes white.
+     */
+    private Drawable monoLogo(App a) {
+        Drawable cached = monoCache.get(a.pkg);
+        if (cached != null) return cached;
+        Drawable src = a.banner != null ? a.banner : a.icon;
+        int bw = a.banner != null ? 320 : 144, bh = a.banner != null ? 180 : 144;
+        Bitmap bm = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        src.setBounds(0, 0, bw, bh);
+        src.draw(new android.graphics.Canvas(bm));
+        int[] px = new int[bw * bh];
+        bm.getPixels(px, 0, bw, 0, 0, bw, bh);
+        long rs = 0, gs = 0, bs = 0; int n = 0;
+        for (int x = 0; x < bw; x++) for (int y : new int[]{0, 1, bh - 2, bh - 1}) {
+            int c = px[y * bw + x]; rs += (c >> 16) & 255; gs += (c >> 8) & 255; bs += c & 255; n++;
+        }
+        for (int y = 0; y < bh; y++) for (int x : new int[]{0, 1, bw - 2, bw - 1}) {
+            int c = px[y * bw + x]; rs += (c >> 16) & 255; gs += (c >> 8) & 255; bs += c & 255; n++;
+        }
+        int br = (int) (rs / n), bgc = (int) (gs / n), bb = (int) (bs / n);
+        for (int i = 0; i < px.length; i++) {
+            int c = px[i];
+            int srcA = (c >>> 24);
+            int d = Math.abs(((c >> 16) & 255) - br) + Math.abs(((c >> 8) & 255) - bgc) + Math.abs((c & 255) - bb);
+            int alpha = Math.max(0, Math.min(255, (d - 60) * 3));
+            alpha = alpha * srcA / 255;
+            px[i] = (alpha << 24) | 0xFFFFFF;
+        }
+        bm.setPixels(px, 0, bw, 0, 0, bw, bh);
+        Drawable out = new BitmapDrawable(getResources(), bm);
+        monoCache.put(a.pkg, out);
+        return out;
+    }
+
+    private Bitmap forestBitmap;
+
+    /** Misty forest photo (CC0, Jay Mantri via Pexels) with a cool, softly desaturated grade. */
+    private Drawable forestDrawable() {
+        if (forestBitmap == null) {
+            try {
+                Bitmap src = BitmapFactory.decodeResource(getResources(), R.drawable.forest);
+                Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
+                android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+                cm.setSaturation(0.45f);
+                cm.postConcat(new android.graphics.ColorMatrix(new float[]{
+                        0.86f, 0, 0, 0, 0,
+                        0, 0.92f, 0, 0, 4,
+                        0, 0, 0.98f, 0, 14,
+                        0, 0, 0, 1, 0}));
+                android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                paint.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
+                new android.graphics.Canvas(out).drawBitmap(src, 0, 0, paint);
+                src.recycle();
+                forestBitmap = out;
+            } catch (Throwable t) {
+                return new ArtWallpaper(4);
+            }
+        }
+        return new BitmapDrawable(getResources(), forestBitmap);
+    }
+
+    private Bitmap snowBitmap;
+
+    /** Same misty forest photo, graded dark and moody with a soft mauve haze for the snowfall theme. */
+    private Drawable snowForestDrawable() {
+        if (snowBitmap == null) {
+            try {
+                Bitmap src = BitmapFactory.decodeResource(getResources(), R.drawable.forest);
+                Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
+                android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+                cm.setSaturation(0.15f);
+                cm.postConcat(new android.graphics.ColorMatrix(new float[]{
+                        0.64f, 0, 0, 0, 8,
+                        0, 0.62f, 0, 0, 6,
+                        0, 0, 0.68f, 0, 16,
+                        0, 0, 0, 1, 0}));
+                android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                paint.setColorFilter(new android.graphics.ColorMatrixColorFilter(cm));
+                android.graphics.Canvas cv = new android.graphics.Canvas(out);
+                cv.drawBitmap(src, 0, 0, paint);
+                // darker bottom so the app row reads well
+                android.graphics.Paint shade = new android.graphics.Paint();
+                shade.setShader(new android.graphics.LinearGradient(0, out.getHeight() * 0.55f, 0, out.getHeight(),
+                        0x00000000, 0x8C000000, android.graphics.Shader.TileMode.CLAMP));
+                cv.drawRect(0, 0, out.getWidth(), out.getHeight(), shade);
+                src.recycle();
+                snowBitmap = out;
+            } catch (Throwable t) {
+                return new ArtWallpaper(4);
+            }
+        }
+        return new BitmapDrawable(getResources(), snowBitmap);
+    }
+
+    /** Winter Snowfall header: a soft pill with Wi-Fi and settings, then the time, top-right. */
+    private View buildPillBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        LinearLayout pill = new LinearLayout(this);
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setPadding(dp(8), dp(2), dp(8), dp(2));
+        GradientDrawable pb = new GradientDrawable();
+        pb.setCornerRadius(dp(24));
+        pb.setColor(0x59D9A9BE);
+        pill.setBackground(pb);
+        wifiView = new TextView(this);
+        wifiView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        wifiView.setGravity(Gravity.CENTER);
+        wifiView.setPadding(dp(10), dp(8), dp(10), dp(8));
+        wifiView.setFocusable(true);
+        wifiView.setClickable(true);
+        wifiView.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? glassPill(true) : null);
+            if (has) wifiView.setTextColor(0xFF0D1B2A); else updateWifi();
+        });
+        wifiView.setOnClickListener(v -> networkDialog());
+        pill.addView(wifiView);
+        View gear = smallIcon(android.R.drawable.ic_menu_preferences, "Menu");
+        ((LinearLayout.LayoutParams) gear.getLayoutParams()).leftMargin = dp(2);
+        gear.setOnClickListener(v -> openPanel());
+        pill.addView(gear);
+        barFocus = gear;
+        bar.addView(pill);
+        TextClock time = new TextClock(this);
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        time.setFormat12Hour(tf);
+        time.setFormat24Hour(tf);
+        time.setTextColor(Color.WHITE);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        time.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+        time.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
+        tl.leftMargin = dp(16);
+        bar.addView(time, tl);
+        dataView = null;
+        sleepButton = new TextView(this);
+        sleepButton.setVisibility(View.GONE);
+        greetingView = null;
+        return bar;
+    }
+
+    /** Above the Clouds header: a big centred clock with a small AM/PM and the full date below. */
+    private View buildCenterClockBar() {
+        FrameLayout f = new FrameLayout(this);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.BOTTOM);
+        TextClock time = new TextClock(this);
+        time.setFormat12Hour("h:mm");
+        time.setFormat24Hour("HH:mm");
+        time.setTextColor(Color.WHITE);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 62);
+        time.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+        time.setShadowLayer(dp(8), 0, dp(1), 0x80000000);
+        row.addView(time);
+        TextClock ampm = new TextClock(this);
+        ampm.setFormat12Hour("a");
+        ampm.setFormat24Hour("");
+        ampm.setTextColor(Color.WHITE);
+        ampm.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        ampm.setSingleLine(true);
+        ampm.setMinWidth(dp(36));
+        ampm.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(-2, -2);
+        al.leftMargin = dp(10);
+        al.bottomMargin = dp(16);
+        row.addView(ampm, al);
+        col.addView(row, new LinearLayout.LayoutParams(-2, -2));
+        TextClock date = new TextClock(this);
+        date.setFormat12Hour("EEEE, d MMMM yyyy");
+        date.setFormat24Hour("EEEE, d MMMM yyyy");
+        date.setTextColor(0xE6FFFFFF);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        date.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
+        dl.topMargin = dp(2);
+        col.addView(date, dl);
+        int top = (int) (getResources().getDisplayMetrics().heightPixels * 0.22f);
+        FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL);
+        cl.topMargin = top;
+        f.addView(col, cl);
+        // A faint settings button top-right (the clock design has none, but Settings must stay reachable).
+        View gear = smallIcon(android.R.drawable.ic_menu_preferences, "Menu");
+        gear.setAlpha(0.55f);
+        gear.setOnFocusChangeListener((v, has) -> v.setAlpha(has ? 1f : 0.55f));
+        gear.setOnClickListener(v -> openPanel());
+        f.addView(gear, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.TOP));
+        barFocus = gear;
+        wifiView = null;
+        dataView = null;
+        sleepButton = new TextView(this);
+        sleepButton.setVisibility(View.GONE);
+        greetingView = null;
+        return f;
+    }
+
+    private TextView greetingView;
+
+    private String greeting() {
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Good night";
+    }
+
+    /** Forest header: big thin clock with the date beside it and a greeting; small icons on the right. */
+    private View buildGreetingBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.TOP);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout timeRow = new LinearLayout(this);
+        timeRow.setGravity(Gravity.BOTTOM);
+        TextClock time = new TextClock(this);
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        time.setFormat12Hour(tf);
+        time.setFormat24Hour(tf);
+        time.setTextColor(Color.WHITE);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 46);
+        time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        time.setLetterSpacing(0.02f);
+        time.setIncludeFontPadding(false);
+        time.setShadowLayer(dp(8), 0, dp(1), 0x66000000);
+        timeRow.addView(time);
+        TextClock date = new TextClock(this);
+        date.setFormat12Hour("EEEE, d MMMM");
+        date.setFormat24Hour("EEEE, d MMMM");
+        date.setTextColor(0xF2FFFFFF);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        date.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+        dlp.leftMargin = dp(20);
+        dlp.bottomMargin = dp(7);
+        timeRow.addView(date, dlp);
+        left.addView(timeRow);
+
+        dataView = null;
+
+        sleepButton = new TextView(this);
+        sleepButton.setTextColor(0xE6FFFFFF);
+        sleepButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        sleepButton.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+        sleepButton.setVisibility(View.GONE);
+        LinearLayout.LayoutParams sbl = new LinearLayout.LayoutParams(-2, -2);
+        sbl.topMargin = dp(14);
+        left.addView(sleepButton, sbl);
+
+        greetingView = new TextView(this);
+        greetingView.setText(greeting());
+        greetingView.setTextColor(0xF2FFFFFF);
+        greetingView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        greetingView.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, -2);
+        glp.topMargin = dp(16);
+        left.addView(greetingView, glp);
+        bar.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        wifiView = null;
+        View net = smallIcon(android.R.drawable.ic_menu_share, "Network");
+        net.setOnClickListener(v -> networkDialog());
+        bar.addView(net);
+        View pics = smallIcon(android.R.drawable.ic_menu_gallery, "Wallpaper");
+        pics.setOnClickListener(v -> {
+            openPanel();
+            panelOnSubPage = true;
+            panelReturnLabel = "Wallpaper";
+            wallpaperPage();
+        });
+        bar.addView(pics);
+        View search = smallIcon(android.R.drawable.ic_menu_search, "Search");
+        search.setOnClickListener(v -> openSearch());
+        bar.addView(search);
+        View menu = smallIcon(android.R.drawable.ic_menu_preferences, "Menu");
+        menu.setOnClickListener(v -> openPanel());
+        bar.addView(menu);
+        barFocus = menu;
+        return bar;
+    }
+
     /** Showcase status bar: a few icons on the left, a calm clock on the right. */
     private View buildMinimalBar() {
         LinearLayout bar = new LinearLayout(this);
@@ -497,6 +841,18 @@ public class MainActivity extends Activity {
         clockBox.addView(date);
         bar.addView(clockBox);
         return bar;
+    }
+
+    /** Small outline-style icon (Forest header). */
+    private View smallIcon(int iconRes, String description) {
+        View v = iconButton(iconRes, description);
+        ImageView img = (ImageView) ((FrameLayout) v).getChildAt(0);
+        img.setLayoutParams(new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
+        img.setAlpha(0.92f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        lp.leftMargin = dp(10);
+        v.setLayoutParams(lp);
+        return v;
     }
 
     private View iconButton(int iconRes, String description) {
@@ -637,7 +993,7 @@ public class MainActivity extends Activity {
         panelScroll = new ScrollView(this);
         panelScroll.setVerticalScrollBarEnabled(false);
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF2181B22);
+        bg.setColor(store.panelColor());
         float r = dp(28);
         bg.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
         panelScroll.setBackground(bg);
@@ -668,6 +1024,7 @@ public class MainActivity extends Activity {
         items.add(new PanelItem(android.R.drawable.ic_menu_manage, "TV settings",
                 () -> safeStart(new Intent(Settings.ACTION_SETTINGS))));
         items.add(PanelItem.header("Look"));
+        items.add(sub(android.R.drawable.ic_menu_gallery, "Theme: " + themeName(), this::themePage));
         items.add(sub(android.R.drawable.ic_menu_view, "Layout", this::layoutPage));
         items.add(sub(android.R.drawable.ic_menu_gallery, "Wallpaper", this::wallpaperPage));
         items.add(sub(android.R.drawable.ic_menu_crop, "Card style", this::cardStylePage));
@@ -836,6 +1193,50 @@ public class MainActivity extends Activity {
 
     // ---- sub-pages
 
+    private String themeName() {
+        int t = store.theme();
+        return t >= 0 && t < THEMES.length ? THEMES[t].name : "Custom";
+    }
+
+    private void themePage() {
+        List<PanelItem> items = new ArrayList<>();
+        for (int i = 0; i < THEMES.length; i++) {
+            final int v = i;
+            Theme th = THEMES[i];
+            items.add(PanelItem.choice(th.name, store.theme() == i, () -> {
+                applyingTheme = true;
+                try {
+                    applyLive(() -> applyTheme(v), this::themePage);
+                } finally {
+                    applyingTheme = false;
+                }
+            }).swatch(ACCENT_COLORS[th.accent]));
+        }
+        if (store.theme() < 0) items.add(0, PanelItem.choice("Custom (your own changes)", true, () -> { }));
+        items.add(PanelItem.header("Tip"));
+        PanelItem tip = new PanelItem(0, "You can still change the wallpaper and more after picking", () -> { });
+        tip.stay = true;
+        items.add(tip);
+        renderPanel("Theme", items, false);
+    }
+
+    private void applyTheme(int i) {
+        Theme th = THEMES[i];
+        store.setTheme(i);
+        store.setWallpaper(th.wallpaper);
+        store.setDayNight(false);
+        store.setAccent(th.accent);
+        store.setCardStyle(th.card);
+        store.setFocusStyle(th.focus);
+        store.setBorder(th.border);
+        store.setGlassTint(th.glassTint);
+        store.setPanelColor(th.panelColor);
+        store.setHeaderStyle(th.header);
+        store.setDockStyle(th.dock);
+        if (th.timeFormat >= 0) store.setTimeFormat(th.timeFormat);
+        store.setLayout(Store.LAYOUT_SHOWCASE);
+    }
+
     private void layoutPage() {
         List<PanelItem> items = new ArrayList<>();
         String[] names = {"Showcase (wallpaper + glass dock)", "Classic (rows)"};
@@ -868,7 +1269,7 @@ public class MainActivity extends Activity {
     }
 
     private void addWallpaperChoices(List<PanelItem> items, int current, IntResult set, Runnable page) {
-        int[] order = {WP_SLIDESHOW, WP_ART, WP_ART + 1, WP_ART + 2, WP_ART + 3, 0, 1, 2, 3, 4, 5, WP_PICTURE, WP_VIDEO};
+        int[] order = {WP_SLIDESHOW, WP_FOREST, WP_SNOW, WP_HORIZON, WP_ART, WP_ART + 1, WP_ART + 2, WP_ART + 3, 0, 1, 2, 3, 4, 5, WP_PICTURE, WP_VIDEO};
         for (int w : order) {
             PanelItem it = PanelItem.choice(WALLPAPER_NAMES[w], current == w, () -> {
                 if (w == WP_PICTURE && !wallpaperFile().exists()) {
@@ -879,7 +1280,7 @@ public class MainActivity extends Activity {
                     toast("Copy a short video to " + videoFile().getAbsolutePath() + " first");
                     return;
                 }
-                applyLive(() -> set.on(w), page);
+                applyLive(() -> { set.on(w); store.setTheme(-1); }, page);
             });
             if (w < WALLPAPER_COLORS.length) it.swatch(WALLPAPER_COLORS[w][2]);
             items.add(it);
@@ -904,7 +1305,7 @@ public class MainActivity extends Activity {
         List<PanelItem> items = new ArrayList<>();
         for (int i = 0; i < STYLE_NAMES.length; i++) {
             final int v = i;
-            items.add(PanelItem.choice(STYLE_NAMES[i], store.cardStyle() == i, () -> applyLive(() -> store.setCardStyle(v), this::cardStylePage)));
+            items.add(PanelItem.choice(STYLE_NAMES[i], store.cardStyle() == i, () -> applyLive(() -> { store.setCardStyle(v); store.setTheme(-1); }, this::cardStylePage)));
         }
         renderPanel("Card style", items, false);
     }
@@ -914,7 +1315,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < ACCENT_NAMES.length; i++) {
             final int v = i;
             items.add(PanelItem.choice(ACCENT_NAMES[i], store.accent() == i,
-                    () -> applyLive(() -> store.setAccent(v), this::accentPage)).swatch(ACCENT_COLORS[i]));
+                    () -> applyLive(() -> { store.setAccent(v); store.setTheme(-1); }, this::accentPage)).swatch(ACCENT_COLORS[i]));
         }
         renderPanel("Accent colour", items, false);
     }
@@ -925,12 +1326,12 @@ public class MainActivity extends Activity {
         String[] names = {"Glass glow (lift and glow)", "Minimal (clean white border)"};
         for (int i = 0; i < names.length; i++) {
             final int v = i;
-            items.add(PanelItem.choice(names[i], store.focusStyle() == i, () -> applyLive(() -> store.setFocusStyle(v), this::focusPage)));
+            items.add(PanelItem.choice(names[i], store.focusStyle() == i, () -> applyLive(() -> { store.setFocusStyle(v); store.setTheme(-1); }, this::focusPage)));
         }
         items.add(PanelItem.header("Border thickness"));
         for (int i = 0; i < BORDER_NAMES.length; i++) {
             final int v = i;
-            items.add(PanelItem.choice(BORDER_NAMES[i], store.border() == i, () -> applyLive(() -> store.setBorder(v), this::focusPage)));
+            items.add(PanelItem.choice(BORDER_NAMES[i], store.border() == i, () -> applyLive(() -> { store.setBorder(v); store.setTheme(-1); }, this::focusPage)));
         }
         renderPanel("Focus style", items, false);
     }
@@ -985,6 +1386,7 @@ public class MainActivity extends Activity {
     private Drawable slideDrawable(int index) {
         int n = slideCount();
         int i = ((index % n) + n) % n;
+        if (i == 4) return forestDrawable();
         if (i < ArtWallpaper.NAMES.length) return new ArtWallpaper(i);
         File f = slidePictures().get(i - ArtWallpaper.NAMES.length);
         BitmapFactory.Options o = new BitmapFactory.Options();
@@ -1150,15 +1552,24 @@ public class MainActivity extends Activity {
         int style = store.cardStyle();
         boolean capsule = style == Store.STYLE_CAPSULE;
         boolean premium = style == Store.STYLE_PREMIUM;
-        int w = capsule ? dp(72) : premium ? dp(144) : dp(112);
-        int h = capsule ? dp(72) : premium ? dp(81) : dp(63);
-        int radius = capsule ? 50 : 18;
+        boolean mono = style == Store.STYLE_MONO;
+        boolean compact = style == Store.STYLE_COMPACT;
+        boolean square = style == Store.STYLE_SQUARE;
+        int w = capsule ? dp(72) : premium ? dp(144) : mono ? dp(66) : compact ? dp(100) : square ? dp(58) : dp(112);
+        int h = capsule ? dp(72) : premium ? dp(81) : mono ? dp(37) : compact ? dp(56) : square ? dp(58) : dp(63);
+        int radius = capsule ? 50 : square ? 16 : compact ? 14 : 18;
         // The glass frame only appears around the selected tile.
         FrameLayout card = new FrameLayout(this);
         card.setPadding(dp(9), dp(9), dp(9), dp(9));
         FrameLayout art = new FrameLayout(this);
         art.setClipToOutline(true);
-        if (capsule) {
+        if (mono) {
+            art.setBackground(null); // logos float straight on the glass
+        } else if (compact) {
+            art.setBackground(rounded(0x99262630, 0, 10)); // small dark translucent tile
+        } else if (square) {
+            art.setBackground(rounded(0x40FFFFFF, 0, 12));
+        } else if (capsule) {
             GradientDrawable circle = new GradientDrawable();
             circle.setShape(GradientDrawable.OVAL);
             circle.setColor(0x2EFFFFFF);
@@ -1168,10 +1579,18 @@ public class MainActivity extends Activity {
             art.setBackground(rounded(0x33FFFFFF, 0, 12));
         }
         ImageView img = new ImageView(this);
-        if (capsule) {
+        if (mono) {
+            img.setImageDrawable(monoLogo(a));
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            art.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        } else if (capsule) {
             img.setImageDrawable(a.icon);
             img.setScaleType(ImageView.ScaleType.FIT_CENTER);
             art.addView(img, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER));
+        } else if (compact && a.banner != null) {
+            img.setImageDrawable(a.banner);
+            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            art.addView(img, new FrameLayout.LayoutParams(-1, -1));
         } else if (a.banner != null) {
             img.setImageDrawable(a.banner);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -1182,7 +1601,23 @@ public class MainActivity extends Activity {
             FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER);
             art.addView(img, ilp);
         }
-        card.addView(art, new FrameLayout.LayoutParams(w, h));
+        android.graphics.ColorMatrixColorFilter soft = null;
+        if (mono) {
+            // Soft, desaturated logos; full colour comes back on the selected app.
+            android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+            cm.setSaturation(0f);
+            android.graphics.ColorMatrix lift = new android.graphics.ColorMatrix(new float[]{
+                    1.1f, 0, 0, 0, 30, 0, 1.1f, 0, 0, 30, 0, 0, 1.1f, 0, 30, 0, 0, 0, 0.9f, 0});
+            cm.postConcat(lift);
+            soft = null;
+            card.setPadding(dp(8), dp(8), dp(8), dp(8));
+            card.addView(art, new FrameLayout.LayoutParams(w, h, Gravity.CENTER));
+            card.setMinimumWidth(dp(78));
+            card.setMinimumHeight(dp(78));
+        } else {
+            card.addView(art, new FrameLayout.LayoutParams(w, h));
+        }
+        final android.graphics.ColorMatrixColorFilter softFilter = soft;
         card.setAlpha(0.85f);
         t.addView(card, new LinearLayout.LayoutParams(-2, -2));
 
@@ -1195,7 +1630,13 @@ public class MainActivity extends Activity {
         label.setGravity(Gravity.CENTER_HORIZONTAL);
         label.setPadding(0, dp(6), 0, 0);
         label.setShadowLayer(dp(3), 0, dp(1), 0x99000000);
-        if (premium) label.setAlpha(0f); // Premium: name only shows on the selected tile
+        if (premium) label.setAlpha(0f); // name only shows on the selected tile
+        if (mono || compact) label.setVisibility(View.GONE); // logos only, like a clean dock
+        if (square) {
+            label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            label.setPadding(0, dp(3), 0, 0);
+            label.setTextColor(0xE6FFFFFF);
+        }
         t.addView(label, new LinearLayout.LayoutParams(Math.max(w + dp(12), dp(96)), -2));
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
@@ -1205,6 +1646,17 @@ public class MainActivity extends Activity {
         t.setOnFocusChangeListener((v, has) -> {
             if (has) glideTo(v);
             boolean minimal = store.focusStyle() == Store.FOCUS_MINIMAL;
+            if (mono) {
+                // Round frosted bubble behind the selected logo.
+                GradientDrawable bubble = new GradientDrawable();
+                bubble.setShape(GradientDrawable.OVAL);
+                bubble.setColor(0x40FFFFFF);
+                bubble.setStroke(dp(2), 0xD9FFFFFF);
+                card.setBackground(has ? bubble : null);
+                card.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).alpha(has ? 1f : 0.9f)
+                        .setDuration(200).start();
+                return;
+            }
             card.setBackground(has ? (minimal ? minimalFrame(radius) : glass(true, radius)) : null);
             card.setElevation(has && !minimal ? dp(12) : 0);
             float grow = minimal ? 1.04f : 1.1f;
@@ -1489,7 +1941,8 @@ public class MainActivity extends Activity {
             boolean compact = store.layout() == Store.LAYOUT_SHOWCASE;
             String kind = wifi ? (compact ? signalBars() : "Wi-Fi " + signalBars()) : eth ? "Ethernet" : "Network";
             wifiView.setText("●  " + kind + (ok ? "" : " (no internet)"));
-            wifiView.setTextColor(wifiView.isFocused() ? 0xFF0D1B2A : ok ? 0xFF66BB6A : 0xFFFFCA28);
+            int okColor = store.headerStyle() == 2 ? Color.WHITE : 0xFF66BB6A; // white in the snowfall pill
+            wifiView.setTextColor(wifiView.isFocused() ? 0xFF0D1B2A : ok ? okColor : 0xFFFFCA28);
         }
     }
 
@@ -1567,11 +2020,15 @@ public class MainActivity extends Activity {
             return;
         }
         root.setBackground(wallpaperDrawable(w));
+        if (w == WP_SNOW) root.addView(new SnowView(this), new FrameLayout.LayoutParams(-1, -1));
     }
 
     private Drawable wallpaperDrawable(int w) {
         if (w == WP_SLIDESHOW) return slideDrawable(store.slideIndex());
-        if (w >= WP_ART && w < WP_ART + ArtWallpaper.NAMES.length) return new ArtWallpaper(w - WP_ART);
+        if (w == WP_FOREST) return forestDrawable();
+        if (w == WP_SNOW) return snowForestDrawable();
+        if (w == WP_HORIZON) return new ArtWallpaper(5);
+        if (w >= WP_ART && w < WP_ART + 4) return new ArtWallpaper(w - WP_ART);
         if (w == WP_PICTURE) {
             File f = wallpaperFile();
             if (f.exists()) {
@@ -1985,7 +2442,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("Lumen 1.4")
+        new AlertDialog.Builder(this).setTitle("Lumen 1.6")
                 .setMessage("A simple, ad-free home screen.\nDeveloped by Ponkoj Shill.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -2030,7 +2487,8 @@ public class MainActivity extends Activity {
 
     private int columns() {
         int s = store.cardStyle();
-        return s == Store.STYLE_CAPSULE ? 8 : s == Store.STYLE_PREMIUM ? 5 : 6;
+        return s == Store.STYLE_CAPSULE ? 8 : s == Store.STYLE_PREMIUM ? 5 : s == Store.STYLE_MONO ? 7
+                : s == Store.STYLE_COMPACT ? 7 : s == Store.STYLE_SQUARE ? 12 : 6;
     }
 
     private int accentColor() {

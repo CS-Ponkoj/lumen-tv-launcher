@@ -20,6 +20,11 @@ final class GlassPanel extends FrameLayout {
     private final Paint tint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clip = new Path();
+    private int glassTint = 0x26FFFFFF;
+    private boolean plain;
+
+    /** Plain: no glass at all, apps sit directly on the wallpaper. */
+    void setPlain(boolean p) { plain = p; invalidate(); }
     private final RectF box = new RectF();
     private final int[] loc = new int[2];
 
@@ -34,14 +39,22 @@ final class GlassPanel extends FrameLayout {
         rim.setColor(0x4DFFFFFF);
     }
 
+    /** Theme colour tint for the frosted glass. */
+    void setGlassTint(int c) {
+        glassTint = c;
+        if (blur != null) tint.setColor(c);
+        invalidate();
+    }
+
     void setBlur(Bitmap b) {
         blur = b;
-        tint.setColor(b != null ? 0x26FFFFFF : 0x40101622);
+        tint.setColor(b != null ? glassTint : 0x40101622);
         invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
+        if (plain) { super.onDraw(canvas); return; }
         int w = getWidth(), h = getHeight();
         box.set(0, 0, w, h);
         clip.reset();

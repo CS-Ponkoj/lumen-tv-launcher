@@ -120,6 +120,27 @@ final class Store {
     /** 0 = frosted glass dock, 1 = apps float directly on the wallpaper. */
     int dockStyle() { return p.getInt("dock_style", 0); }
     void setDockStyle(int s) { p.edit().putInt("dock_style", s).apply(); }
+    // ---- weather (opt-in) & status line
+    boolean weatherOn() { return p.getBoolean("weather_on", false); }
+    void setWeatherOn(boolean b) { p.edit().putBoolean("weather_on", b).apply(); }
+    String weatherCity() { return p.getString("weather_city", ""); }
+    void setWeatherCity(String c) { p.edit().putString("weather_city", c).apply(); }
+    String weatherLat() { return p.getString("weather_lat", ""); }
+    String weatherLon() { return p.getString("weather_lon", ""); }
+    String weatherPlace() { return p.getString("weather_place", weatherCity()); }
+    void setWeatherLocation(String lat, String lon, String place) {
+        p.edit().putString("weather_lat", lat).putString("weather_lon", lon).putString("weather_place", place).apply();
+    }
+    boolean weatherFahrenheit() { return p.getBoolean("weather_f", false); }
+    void setWeatherFahrenheit(boolean f) { p.edit().putBoolean("weather_f", f).apply(); }
+    float weatherTemp() { return p.getFloat("weather_temp", 0); }
+    int weatherCode() { return p.getInt("weather_code", 0); }
+    long weatherTime() { return p.getLong("weather_time", 0); }
+    void setWeather(float temp, int code, long time) {
+        p.edit().putFloat("weather_temp", temp).putInt("weather_code", code).putLong("weather_time", time).apply();
+    }
+    String roomName() { return p.getString("room_name", "Living room"); }
+    void setRoomName(String n) { p.edit().putString("room_name", n).apply(); }
     boolean sounds() { return p.getBoolean("sounds", true); }
     void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
     int border() { return p.getInt("border", 1); }

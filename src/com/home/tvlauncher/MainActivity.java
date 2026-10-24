@@ -174,6 +174,8 @@ public class MainActivity extends Activity {
             updateSleepLabel();
             updateDataUsage();
             if (greetingView != null) greetingView.setText(greeting());
+            updateStatusLine();
+            showWeather();
             if (effectiveWallpaper() != appliedWallpaper) rebuild(); // day/night switch
             handler.postDelayed(this, 30_000);
         }
@@ -304,8 +306,8 @@ public class MainActivity extends Activity {
         View barView = !showcase ? buildTopBar() : hdr == 1 ? buildGreetingBar() : hdr == 2 ? buildPillBar()
                 : hdr == 3 ? buildCenterClockBar() : buildMinimalBar();
         bw.addView(barView, new LinearLayout.LayoutParams(-1, -2));
-        if (showcase && hdr == 1) bw.setPadding(dp(70), dp(44), dp(56), dp(16));
-        if (showcase && (hdr == 2 || hdr == 3)) {
+        if (showcase && hdr != 3) bw.setPadding(dp(64), dp(40), dp(56), dp(16));
+        if (showcase && hdr == 3) {
             bw.setPadding(dp(48), dp(28), dp(56), dp(16));
             bw.setBackground(null);
         }
@@ -582,11 +584,253 @@ public class MainActivity extends Activity {
         return new BitmapDrawable(getResources(), snowBitmap);
     }
 
-    /** Winter Snowfall header: a soft pill with Wi-Fi and settings, then the time, top-right. */
+    // ---- info block: clock + date, weather, TV status, greeting (used by every theme)
+
+    private TextView greetingView, statusView, weatherTemp, weatherPlace;
+    private ImageView weatherIconView;
+    private LinearLayout weatherRow;
+    private String dataToday;
+
+    private String greeting() {
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Good night";
+    }
+
+    private TextView infoText(float sp, int color) {
+        TextView t = new TextView(this);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextColor(color);
+        t.setShadowLayer(dp(6), 0, dp(1), 0x73000000);
+        return t;
+    }
+
+    /**
+     * The top-left block from the reference look:
+     * 19:23  Friday, 23 October / (weather) 15° City · Rain / Living room · Wi-Fi good · 98 MB today / Good evening
+     */
+    private LinearLayout infoBlock(boolean centered) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(centered ? Gravity.CENTER_HORIZONTAL : Gravity.START);
+
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        if (centered) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.BOTTOM);
+            TextClock time = new TextClock(this);
+            boolean twelve = tf.startsWith("h");
+            time.setFormat12Hour(twelve ? "h:mm" : "HH:mm");
+            time.setFormat24Hour(twelve ? "h:mm" : "HH:mm");
+            time.setTextColor(Color.WHITE);
+            time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 62);
+            time.setShadowLayer(dp(8), 0, dp(1), 0x80000000);
+            row.addView(time);
+            if (tf.endsWith("a")) {
+                TextClock ampm = new TextClock(this);
+                ampm.setFormat12Hour("a");
+                ampm.setFormat24Hour("a");
+                ampm.setTextColor(Color.WHITE);
+                ampm.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+                ampm.setSingleLine(true);
+                ampm.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+                LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(-2, -2);
+                al.leftMargin = dp(10);
+                al.bottomMargin = dp(16);
+                row.addView(ampm, al);
+            }
+            col.addView(row, new LinearLayout.LayoutParams(-2, -2));
+            TextClock date = new TextClock(this);
+            date.setFormat12Hour("EEEE, d MMMM yyyy");
+            date.setFormat24Hour("EEEE, d MMMM yyyy");
+            date.setTextColor(0xE6FFFFFF);
+            date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            date.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+            LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
+            dl.topMargin = dp(2);
+            col.addView(date, dl);
+        } else {
+            LinearLayout timeRow = new LinearLayout(this);
+            timeRow.setGravity(Gravity.BOTTOM);
+            TextClock time = new TextClock(this);
+            time.setFormat12Hour(tf);
+            time.setFormat24Hour(tf);
+            time.setTextColor(Color.WHITE);
+            time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 46);
+            time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+            time.setLetterSpacing(0.02f);
+            time.setShadowLayer(dp(8), 0, dp(1), 0x66000000);
+            timeRow.addView(time);
+            TextClock date = new TextClock(this);
+            String df = store.headerStyle() == 0 ? DATE_FORMATS[clamp(store.dateFormat(), DATE_FORMATS.length)] : "EEEE, d MMMM";
+            date.setFormat12Hour(df);
+            date.setFormat24Hour(df);
+            date.setTextColor(0xF2FFFFFF);
+            date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            date.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+            dlp.leftMargin = dp(20);
+            dlp.bottomMargin = dp(9);
+            timeRow.addView(date, dlp);
+            col.addView(timeRow);
+        }
+
+        // weather (only when switched on)
+        weatherRow = new LinearLayout(this);
+        weatherRow.setGravity(Gravity.CENTER_VERTICAL);
+        weatherIconView = new ImageView(this);
+        weatherRow.addView(weatherIconView, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        weatherTemp = infoText(28, Color.WHITE);
+        weatherTemp.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        LinearLayout.LayoutParams wt = new LinearLayout.LayoutParams(-2, -2);
+        wt.leftMargin = dp(10);
+        weatherRow.addView(weatherTemp, wt);
+        weatherPlace = infoText(14, 0xF2FFFFFF);
+        LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(-2, -2);
+        wp.leftMargin = dp(14);
+        weatherRow.addView(weatherPlace, wp);
+        weatherRow.setVisibility(View.GONE);
+        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(-2, -2);
+        wl.topMargin = dp(8);
+        col.addView(weatherRow, wl);
+
+        statusView = infoText(14, 0xF2FFFFFF);
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-2, -2);
+        sl.topMargin = dp(8);
+        col.addView(statusView, sl);
+
+        greetingView = infoText(14, 0xF2FFFFFF);
+        greetingView.setText(greeting());
+        LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(-2, -2);
+        gl.topMargin = dp(4);
+        col.addView(greetingView, gl);
+
+        dataView = null;
+        sleepButton = new TextView(this); // the sleep timer shows in the status line
+        sleepButton.setVisibility(View.GONE);
+        updateStatusLine();
+        showWeather();
+        return col;
+    }
+
+    /** "Living room · Wi-Fi good · 98 MB today · Sleep in 20 min" */
+    private void updateStatusLine() {
+        if (statusView == null) return;
+        StringBuilder sb = new StringBuilder(store.roomName());
+        String net = networkSummary();
+        if (!net.isEmpty()) sb.append(" · ").append(net);
+        if (dataToday != null && store.showDataUsage()) sb.append(" · ").append(dataToday);
+        long left = store.sleepAt() - System.currentTimeMillis();
+        if (store.sleepAt() != 0 && left > 0) {
+            sb.append(" · Sleep in ").append(Math.max(1, (left + 59_999) / 60_000)).append(" min");
+        }
+        statusView.setText(sb.toString());
+    }
+
+    private String networkSummary() {
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            NetworkCapabilities c = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (c == null) return "Offline";
+            if (c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "Ethernet";
+            if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                int lvl = wifiLevel();
+                return lvl < 0 ? "Wi-Fi" : lvl >= 2 ? "Wi-Fi good" : "Wi-Fi weak";
+            }
+            return "Online";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Shows the cached weather (if any) and refreshes it in the background when it is older than 30 min. */
+    private void showWeather() {
+        if (weatherRow == null) return;
+        if (!store.weatherOn() || store.weatherTime() == 0) {
+            weatherRow.setVisibility(View.GONE);
+        } else {
+            weatherIconView.setImageDrawable(new WeatherIcon(WeatherIcon.fromCode(store.weatherCode())));
+            weatherTemp.setText(Math.round(store.weatherTemp()) + "°");
+            weatherPlace.setText(store.weatherPlace() + " · " + WeatherIcon.describe(store.weatherCode()));
+            weatherRow.setVisibility(View.VISIBLE);
+        }
+        if (store.weatherOn() && System.currentTimeMillis() - store.weatherTime() > 30 * 60_000L) fetchWeather();
+    }
+
+    private boolean fetchingWeather;
+
+    /** Open-Meteo: free, no account or key. Only the city's coordinates are sent. */
+    private void fetchWeather() {
+        if (fetchingWeather || store.weatherCity().isEmpty()) return;
+        fetchingWeather = true;
+        new Thread(() -> {
+            try {
+                if (store.weatherLat().isEmpty()) {
+                    String q = java.net.URLEncoder.encode(store.weatherCity(), "UTF-8");
+                    org.json.JSONObject g = new org.json.JSONObject(httpGet(
+                            "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=" + q));
+                    org.json.JSONArray res = g.optJSONArray("results");
+                    if (res == null || res.length() == 0) {
+                        runOnUiThread(() -> toast("Weather: couldn't find \"" + store.weatherCity() + "\""));
+                        return;
+                    }
+                    org.json.JSONObject r = res.getJSONObject(0);
+                    store.setWeatherLocation(String.valueOf(r.getDouble("latitude")),
+                            String.valueOf(r.getDouble("longitude")), r.optString("name", store.weatherCity()));
+                }
+                String unit = store.weatherFahrenheit() ? "&temperature_unit=fahrenheit" : "";
+                org.json.JSONObject f = new org.json.JSONObject(httpGet("https://api.open-meteo.com/v1/forecast?latitude="
+                        + store.weatherLat() + "&longitude=" + store.weatherLon()
+                        + "&current=temperature_2m,weather_code" + unit));
+                org.json.JSONObject cur = f.getJSONObject("current");
+                store.setWeather((float) cur.getDouble("temperature_2m"), cur.getInt("weather_code"), System.currentTimeMillis());
+                runOnUiThread(this::showWeather);
+            } catch (Exception ignored) {
+                // offline or blocked: keep the last known weather
+            } finally {
+                fetchingWeather = false;
+            }
+        }).start();
+    }
+
+    private static String httpGet(String url) throws java.io.IOException {
+        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(8000);
+        try (java.io.InputStream in = c.getInputStream()) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    // ---- headers (all built around the info block)
+
+    /** Default header: info block on the left, settings / search / network icons on the right. */
+    private View buildMinimalBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.TOP);
+        bar.addView(infoBlock(false), new LinearLayout.LayoutParams(0, -2, 1f));
+        addRightIcons(bar, false);
+        return bar;
+    }
+
+    /** Foggy Forest header: info block + small outline icons. */
+    private View buildGreetingBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.TOP);
+        bar.addView(infoBlock(false), new LinearLayout.LayoutParams(0, -2, 1f));
+        addRightIcons(bar, true);
+        return bar;
+    }
+
+    /** Winter Snowfall header: info block + a soft pill with Wi-Fi and settings. */
     private View buildPillBar() {
         LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        bar.setGravity(Gravity.TOP);
+        bar.addView(infoBlock(false), new LinearLayout.LayoutParams(0, -2, 1f));
         LinearLayout pill = new LinearLayout(this);
         pill.setGravity(Gravity.CENTER_VERTICAL);
         pill.setPadding(dp(8), dp(2), dp(8), dp(2));
@@ -612,67 +856,17 @@ public class MainActivity extends Activity {
         pill.addView(gear);
         barFocus = gear;
         bar.addView(pill);
-        TextClock time = new TextClock(this);
-        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
-        time.setFormat12Hour(tf);
-        time.setFormat24Hour(tf);
-        time.setTextColor(Color.WHITE);
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
-        time.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-        time.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
-        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
-        tl.leftMargin = dp(16);
-        bar.addView(time, tl);
-        dataView = null;
-        sleepButton = new TextView(this);
-        sleepButton.setVisibility(View.GONE);
-        greetingView = null;
         return bar;
     }
 
-    /** Above the Clouds header: a big centred clock with a small AM/PM and the full date below. */
+    /** Above the Clouds header: the info block centred under a big clock. */
     private View buildCenterClockBar() {
         FrameLayout f = new FrameLayout(this);
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.BOTTOM);
-        TextClock time = new TextClock(this);
-        time.setFormat12Hour("h:mm");
-        time.setFormat24Hour("HH:mm");
-        time.setTextColor(Color.WHITE);
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 62);
-        time.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-        time.setShadowLayer(dp(8), 0, dp(1), 0x80000000);
-        row.addView(time);
-        TextClock ampm = new TextClock(this);
-        ampm.setFormat12Hour("a");
-        ampm.setFormat24Hour("");
-        ampm.setTextColor(Color.WHITE);
-        ampm.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        ampm.setSingleLine(true);
-        ampm.setMinWidth(dp(36));
-        ampm.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
-        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(-2, -2);
-        al.leftMargin = dp(10);
-        al.bottomMargin = dp(16);
-        row.addView(ampm, al);
-        col.addView(row, new LinearLayout.LayoutParams(-2, -2));
-        TextClock date = new TextClock(this);
-        date.setFormat12Hour("EEEE, d MMMM yyyy");
-        date.setFormat24Hour("EEEE, d MMMM yyyy");
-        date.setTextColor(0xE6FFFFFF);
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        date.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
-        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-2, -2);
-        dl.topMargin = dp(2);
-        col.addView(date, dl);
-        int top = (int) (getResources().getDisplayMetrics().heightPixels * 0.22f);
+        LinearLayout col = infoBlock(true);
+        int top = (int) (getResources().getDisplayMetrics().heightPixels * 0.18f);
         FrameLayout.LayoutParams cl = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL);
         cl.topMargin = top;
         f.addView(col, cl);
-        // A faint settings button top-right (the clock design has none, but Settings must stay reachable).
         View gear = smallIcon(android.R.drawable.ic_menu_preferences, "Menu");
         gear.setAlpha(0.55f);
         gear.setOnFocusChangeListener((v, has) -> v.setAlpha(has ? 1f : 0.55f));
@@ -680,73 +874,10 @@ public class MainActivity extends Activity {
         f.addView(gear, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.TOP));
         barFocus = gear;
         wifiView = null;
-        dataView = null;
-        sleepButton = new TextView(this);
-        sleepButton.setVisibility(View.GONE);
-        greetingView = null;
         return f;
     }
 
-    private TextView greetingView;
-
-    private String greeting() {
-        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
-        return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Good night";
-    }
-
-    /** Forest header: big thin clock with the date beside it and a greeting; small icons on the right. */
-    private View buildGreetingBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.TOP);
-
-        LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout timeRow = new LinearLayout(this);
-        timeRow.setGravity(Gravity.BOTTOM);
-        TextClock time = new TextClock(this);
-        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
-        time.setFormat12Hour(tf);
-        time.setFormat24Hour(tf);
-        time.setTextColor(Color.WHITE);
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 46);
-        time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        time.setLetterSpacing(0.02f);
-        time.setIncludeFontPadding(false);
-        time.setShadowLayer(dp(8), 0, dp(1), 0x66000000);
-        timeRow.addView(time);
-        TextClock date = new TextClock(this);
-        date.setFormat12Hour("EEEE, d MMMM");
-        date.setFormat24Hour("EEEE, d MMMM");
-        date.setTextColor(0xF2FFFFFF);
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        date.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
-        dlp.leftMargin = dp(20);
-        dlp.bottomMargin = dp(7);
-        timeRow.addView(date, dlp);
-        left.addView(timeRow);
-
-        dataView = null;
-
-        sleepButton = new TextView(this);
-        sleepButton.setTextColor(0xE6FFFFFF);
-        sleepButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        sleepButton.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
-        sleepButton.setVisibility(View.GONE);
-        LinearLayout.LayoutParams sbl = new LinearLayout.LayoutParams(-2, -2);
-        sbl.topMargin = dp(14);
-        left.addView(sleepButton, sbl);
-
-        greetingView = new TextView(this);
-        greetingView.setText(greeting());
-        greetingView.setTextColor(0xF2FFFFFF);
-        greetingView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        greetingView.setShadowLayer(dp(6), 0, dp(1), 0x66000000);
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-2, -2);
-        glp.topMargin = dp(16);
-        left.addView(greetingView, glp);
-        bar.addView(left, new LinearLayout.LayoutParams(0, -2, 1f));
-
+    private void addRightIcons(LinearLayout bar, boolean outline) {
         wifiView = null;
         View net = smallIcon(android.R.drawable.ic_menu_share, "Network");
         net.setOnClickListener(v -> networkDialog());
@@ -766,81 +897,50 @@ public class MainActivity extends Activity {
         menu.setOnClickListener(v -> openPanel());
         bar.addView(menu);
         barFocus = menu;
-        return bar;
     }
 
-    /** Showcase status bar: a few icons on the left, a calm clock on the right. */
-    private View buildMinimalBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
+    // ---- weather & room settings page
 
-        View menu = iconButton(android.R.drawable.ic_menu_preferences, "Menu");
-        menu.setOnClickListener(v -> openPanel());
-        bar.addView(menu);
-        barFocus = menu;
+    private void weatherPage() {
+        List<PanelItem> items = new ArrayList<>();
+        items.add(PanelItem.header("Weather"));
+        boolean on = store.weatherOn();
+        items.add(PanelItem.choice("Show weather (uses internet)", on, () -> {
+            if (!on && store.weatherCity().isEmpty()) { askCity(); return; }
+            applyLive(() -> store.setWeatherOn(!on), this::weatherPage);
+        }));
+        PanelItem city = new PanelItem(0, "City: " + (store.weatherCity().isEmpty() ? "not set" : store.weatherCity()), this::askCity);
+        city.stay = true;
+        items.add(city);
+        items.add(PanelItem.choice("Celsius (°C)", !store.weatherFahrenheit(),
+                () -> applyLive(() -> { store.setWeatherFahrenheit(false); store.setWeather(0, 0, 0); }, this::weatherPage)));
+        items.add(PanelItem.choice("Fahrenheit (°F)", store.weatherFahrenheit(),
+                () -> applyLive(() -> { store.setWeatherFahrenheit(true); store.setWeather(0, 0, 0); }, this::weatherPage)));
+        items.add(PanelItem.header("Status line"));
+        PanelItem room = new PanelItem(0, "Room name: " + store.roomName(), () ->
+                textDialog("Room name", store.roomName(), "e.g. Living room, Bedroom", s -> {
+                    store.setRoomName(s.trim().isEmpty() ? "Living room" : s.trim());
+                    applyLive(() -> { }, this::weatherPage);
+                }));
+        room.stay = true;
+        items.add(room);
+        items.add(PanelItem.header("Privacy"));
+        PanelItem note = new PanelItem(0, "Only your city is sent to open-meteo.com", () -> { });
+        note.stay = true;
+        items.add(note);
+        renderPanel("Weather & info", items, false);
+    }
 
-        View search = iconButton(android.R.drawable.ic_menu_search, "Search");
-        search.setOnClickListener(v -> openSearch());
-        bar.addView(search);
-
-        wifiView = new TextView(this);
-        wifiView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        wifiView.setGravity(Gravity.CENTER);
-        wifiView.setMinWidth(dp(52));
-        wifiView.setPadding(dp(14), dp(10), dp(14), dp(10));
-        wifiView.setFocusable(true);
-        wifiView.setClickable(true);
-        wifiView.setOnFocusChangeListener((v, has) -> {
-            v.setBackground(has ? glassPill(true) : null);
-            if (has) wifiView.setTextColor(0xFF0D1B2A); else updateWifi();
+    private void askCity() {
+        textDialog("Your city", store.weatherCity(), "e.g. Istanbul, London, Dhaka", s -> {
+            String c = s.trim();
+            applyLive(() -> {
+                store.setWeatherCity(c);
+                store.setWeatherLocation("", "", "");
+                store.setWeather(0, 0, 0);
+                store.setWeatherOn(!c.isEmpty());
+            }, this::weatherPage);
         });
-        wifiView.setOnClickListener(v -> networkDialog());
-        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-2, -2);
-        wlp.leftMargin = dp(6);
-        bar.addView(wifiView, wlp);
-
-        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
-
-        sleepButton = new TextView(this);
-        sleepButton.setTextColor(0xCCFFFFFF);
-        sleepButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        sleepButton.setPadding(dp(12), dp(4), dp(12), dp(4));
-        sleepButton.setBackground(glassPill(false));
-        sleepButton.setVisibility(View.GONE);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
-        slp.rightMargin = dp(16);
-        bar.addView(sleepButton, slp);
-
-        dataView = new TextView(this);
-        dataView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        dataView.setTextColor(0xB3FFFFFF);
-        dataView.setVisibility(View.GONE);
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
-        dlp.rightMargin = dp(20);
-        bar.addView(dataView, dlp);
-
-        LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setOrientation(LinearLayout.VERTICAL);
-        clockBox.setGravity(Gravity.END);
-        TextClock time = new TextClock(this);
-        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
-        time.setFormat12Hour(tf);
-        time.setFormat24Hour(tf);
-        time.setTextColor(Color.WHITE);
-        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
-        time.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        time.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
-        clockBox.addView(time);
-        TextClock date = new TextClock(this);
-        String df = DATE_FORMATS[clamp(store.dateFormat(), DATE_FORMATS.length)];
-        date.setFormat12Hour(df);
-        date.setFormat24Hour(df);
-        date.setTextColor(0xCCFFFFFF);
-        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        date.setShadowLayer(dp(4), 0, dp(1), 0x80000000);
-        clockBox.addView(date);
-        bar.addView(clockBox);
-        return bar;
     }
 
     /** Small outline-style icon (Forest header). */
@@ -1035,6 +1135,7 @@ public class MainActivity extends Activity {
         items.add(new PanelItem(android.R.drawable.ic_menu_sort_by_size, "Categories", this::categoriesDialog));
         items.add(new PanelItem(android.R.drawable.ic_menu_close_clear_cancel, "Hidden apps", this::hiddenDialog));
         items.add(new PanelItem(android.R.drawable.ic_menu_edit, "Rename inputs", this::renameInputsDialog));
+        items.add(sub(android.R.drawable.ic_menu_day, "Weather & info", this::weatherPage));
         items.add(new PanelItem(android.R.drawable.ic_menu_upload, "Data usage", this::dataUsageDialog));
         PanelItem snd = new PanelItem(android.R.drawable.ic_lock_silent_mode_off,
                 "Navigation sounds: " + (store.sounds() ? "On" : "Off"), () -> {
@@ -1927,6 +2028,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ wifi
 
     private void updateWifi() {
+        updateStatusLine();
         if (wifiView == null) return;
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         NetworkCapabilities c = null;
@@ -2344,8 +2446,12 @@ public class MainActivity extends Activity {
     }
 
     private void updateDataUsage() {
-        if (dataView == null) return;
-        if (!store.showDataUsage() || !hasUsageAccess()) { dataView.setVisibility(View.GONE); return; }
+        if (!store.showDataUsage() || !hasUsageAccess()) {
+            dataToday = null;
+            if (dataView != null) dataView.setVisibility(View.GONE);
+            updateStatusLine();
+            return;
+        }
         final TextView target = dataView;
         new Thread(() -> {
             long total = 0;
@@ -2365,7 +2471,12 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) { }
             final String text = "↕ " + humanBytes(total) + " today";
-            runOnUiThread(() -> { target.setText(text); target.setVisibility(View.VISIBLE); });
+            final String today = humanBytes(total) + " today";
+            runOnUiThread(() -> {
+                dataToday = today;
+                if (target != null) { target.setText(text); target.setVisibility(View.VISIBLE); }
+                updateStatusLine();
+            });
         }).start();
     }
 
@@ -2442,7 +2553,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("Lumen 1.6")
+        new AlertDialog.Builder(this).setTitle("Lumen 1.7")
                 .setMessage("A simple, ad-free home screen.\nDeveloped by Ponkoj Shill.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -2462,10 +2573,16 @@ public class MainActivity extends Activity {
         FrameLayout box = new FrameLayout(this);
         box.setPadding(dp(24), dp(8), dp(24), 0);
         box.addView(e);
-        new AlertDialog.Builder(this).setTitle(title).setView(box)
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle(title).setView(box)
                 .setPositiveButton("Save", (d, w) -> r.onText(e.getText().toString()))
                 .setNegativeButton("Cancel", null)
                 .show();
+        // The keyboard's Done / Enter key saves straight away (easier with a remote).
+        e.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        e.setOnEditorActionListener((v, action, ev) -> {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            return true;
+        });
     }
 
     private void safeStart(Intent i) {

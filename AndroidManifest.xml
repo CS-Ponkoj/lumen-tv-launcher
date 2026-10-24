@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.home.tvlauncher"
-    android:versionCode="7"
-    android:versionName="1.6">
+    android:versionCode="8"
+    android:versionName="1.7">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="30" />
 
-    <!-- No INTERNET permission: the launcher never goes online. -->
+    <!-- Internet is used ONLY for the optional weather line (Open-Meteo), which is off by default. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Optional: today's data usage in the status bar (user turns on "Usage access"). -->

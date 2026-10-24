@@ -397,6 +397,7 @@ public class MainActivity extends Activity {
         allGrid.setPadding(dp(8), dp(16), dp(8), dp(14));
         content.addView(allGrid);
         fillAllApps("");
+        content.addView(credit(), new LinearLayout.LayoutParams(-1, -2));
 
         updateWifi();
         updateSleepLabel();
@@ -675,6 +676,11 @@ public class MainActivity extends Activity {
             }
         }
 
+        TextView by = credit();
+        by.setGravity(Gravity.START);
+        by.setPadding(dp(14), dp(24), 0, 0);
+        list.addView(by);
+
         overlay.addView(sv, new FrameLayout.LayoutParams(dp(360), -1, Gravity.START));
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
         panel = overlay;
@@ -737,6 +743,18 @@ public class MainActivity extends Activity {
     private String sleepLabel() {
         long left = store.sleepAt() - System.currentTimeMillis();
         return store.sleepAt() == 0 || left <= 0 ? "Sleep timer" : "Sleep timer · " + Math.max(1, (left + 59_999) / 60_000) + " min left";
+    }
+
+    private TextView credit() {
+        TextView t = new TextView(this);
+        t.setText("Lumen · Developed by Ponkoj Shill");
+        t.setTextColor(0x80FFFFFF);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        t.setLetterSpacing(0.04f);
+        t.setGravity(Gravity.CENTER_HORIZONTAL);
+        t.setPadding(0, dp(28), 0, dp(8));
+        t.setShadowLayer(dp(3), 0, dp(1), 0x80000000);
+        return t;
     }
 
     private void layoutDialog() {
@@ -1689,7 +1707,7 @@ public class MainActivity extends Activity {
 
     private void aboutDialog() {
         new AlertDialog.Builder(this).setTitle("Lumen 1.3")
-                .setMessage("A simple, ad-free home screen.\n\nNo internet permission, no tracking.\n\n"
+                .setMessage("A simple, ad-free home screen.\nDeveloped by Ponkoj Shill.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
                 .setPositiveButton("OK", null).show();

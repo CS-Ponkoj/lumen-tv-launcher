@@ -73,7 +73,14 @@ public class MainActivity extends Activity {
 
     private static final String[] WALLPAPER_NAMES = {
             "Midnight", "Deep blue", "Charcoal", "Forest", "Plum", "Black",
-            "My picture (wallpaper.jpg)"};
+            "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)"};
+    private static final int WP_PICTURE = 6, WP_VIDEO = 7;
+
+    private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
+    private static final String[] TIME_NAMES = {"12-hour (9:41 PM)", "24-hour (21:41)", "12-hour, no AM/PM (9:41)"};
+    private static final String[] DATE_FORMATS = {"EEE, MMM d", "EEEE, MMMM d", "d MMM", "dd/MM/yyyy", "MM/dd/yyyy"};
+    private static final String[] BORDER_NAMES = {"Thin", "Normal", "Thick"};
+    private static final int[] BORDER_DP = {2, 3, 5};
     private static final int[][] WALLPAPER_COLORS = {
             {0xFF0F2027, 0xFF203A43, 0xFF2C5364},
             {0xFF0B1D3A, 0xFF12305E, 0xFF1B3B6F},
@@ -97,6 +104,18 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private LinearLayout content;
+    private ScrollView scroll;
+    private View barWrap;
+    private View barFocus;
+    private boolean barShown = true;
+    private TextView dataView;
+    private android.widget.VideoView videoView;
+    private int appliedWallpaper = -1;
+
+    // Arrow-key move mode for Favorites / category rows.
+    private String moveSection, movePkg;
+    private String pendingFocusKey;
+    private final Map<String, View> tileIndex = new HashMap<>();
     private TextView wifiView;
     private TextView sleepButton;
     private EditText searchBox;
@@ -118,6 +137,8 @@ public class MainActivity extends Activity {
     private final Runnable minuteTick = new Runnable() {
         @Override public void run() {
             updateSleepLabel();
+            updateDataUsage();
+            if (effectiveWallpaper() != appliedWallpaper) rebuild(); // day/night switch
             handler.postDelayed(this, 30_000);
         }
     };
@@ -149,6 +170,14 @@ public class MainActivity extends Activity {
         };
         try { cm.registerDefaultNetworkCallback(netCallback); } catch (Exception ignored) { }
 
+        // Bring the hidden status bar back whenever focus moves into it.
+        root.getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
+            if (newF != null && barWrap != null && isInside(newF, barWrap)) {
+                setBarShown(true);
+                if (scroll != null) scroll.smoothScrollTo(0, 0);
+            }
+        });
+
         if (checkSelfPermission(EPG_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{EPG_PERMISSION}, 1);
         }
@@ -164,6 +193,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         handler.removeCallbacks(minuteTick);
+        if (videoView != null) videoView.stopPlayback();
         super.onPause();
     }
 
@@ -198,20 +228,36 @@ public class MainActivity extends Activity {
         loadApps();
         initDefaultFavorites();
         root.removeAllViews();
-        root.setBackground(wallpaperDrawable());
+        tileIndex.clear();
+        videoView = null;
+        applyWallpaper();
 
-        ScrollView scroll = new ScrollView(this);
+        scroll = new ScrollView(this) {
+            // We scroll ourselves (smoothly, keeping the focused row in view), so stop the default jump.
+            @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) { return 0; }
+        };
         scroll.setFillViewport(true);
         scroll.setVerticalScrollBarEnabled(false);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setClipChildren(false);
-        content.setPadding(dp(40), dp(24), dp(40), dp(24));
+        // Leave room at the top for the floating status bar.
+        content.setPadding(dp(40), dp(118), dp(40), dp(24));
         scroll.addView(content);
         root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         firstFocusTarget = null;
-        content.addView(buildTopBar());
+
+        // Status bar floats above the content and slides away when you scroll into the apps.
+        LinearLayout bw = new LinearLayout(this);
+        bw.setPadding(dp(40), dp(24), dp(40), dp(16));
+        bw.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x66000000, 0x00000000}));
+        bw.addView(buildTopBar(), new LinearLayout.LayoutParams(-1, -2));
+        barWrap = bw;
+        barShown = true;
+        root.addView(bw, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
+        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> setBarShown(y < dp(40)));
 
         searchBox = new EditText(this);
         searchBox.setHint("Type to search apps…");
@@ -236,7 +282,7 @@ public class MainActivity extends Activity {
         for (String p : store.favorites()) if (apps.containsKey(p)) favs.add(p);
         if (!favs.isEmpty()) {
             content.addView(sectionTitle("★  Favorites"));
-            content.addView(tileRow(favs, true));
+            content.addView(tileRow(favs, "fav", true));
         }
 
         // Continue watching (system "Watch Next" list, read locally)
@@ -264,7 +310,7 @@ public class MainActivity extends Activity {
             for (String p : store.categoryApps(cat)) if (apps.containsKey(p)) pk.add(p);
             if (pk.isEmpty()) continue;
             content.addView(sectionTitle(cat));
-            content.addView(tileRow(pk, false));
+            content.addView(store.categoryGrid(cat) ? tileGrid(pk, "cat:" + cat) : tileRow(pk, "cat:" + cat, false));
         }
 
         // Recent
@@ -272,7 +318,7 @@ public class MainActivity extends Activity {
         for (String p : store.recents()) if (apps.containsKey(p)) rec.add(p);
         if (!rec.isEmpty()) {
             content.addView(sectionTitle("Recent"));
-            content.addView(tileRow(rec, false));
+            content.addView(tileRow(rec, null, false));
         }
 
         // Inputs (HDMI etc.) by name
@@ -310,10 +356,19 @@ public class MainActivity extends Activity {
 
         updateWifi();
         updateSleepLabel();
+        updateDataUsage();
+        final View pending = pendingFocusKey != null ? tileIndex.get(pendingFocusKey) : null;
+        pendingFocusKey = null;
         final View first = firstFocusTarget;
-        scroll.post(() -> {
-            if (first != null) first.requestFocus();
-            scroll.scrollTo(0, 0);
+        if (first != null) first.setFocusedByDefault(true);
+        final ScrollView sc = scroll;
+        sc.post(() -> {
+            if (pending != null) {
+                pending.requestFocus();
+            } else {
+                if (first != null) first.requestFocus();
+                sc.scrollTo(0, 0);
+            }
         });
     }
 
@@ -324,8 +379,9 @@ public class MainActivity extends Activity {
         LinearLayout clockBox = new LinearLayout(this);
         clockBox.setOrientation(LinearLayout.VERTICAL);
         TextClock time = new TextClock(this);
-        time.setFormat12Hour("h:mm a");
-        time.setFormat24Hour("HH:mm");
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        time.setFormat12Hour(tf);
+        time.setFormat24Hour(tf);
         time.setTextColor(Color.WHITE);
         time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
         time.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
@@ -334,19 +390,43 @@ public class MainActivity extends Activity {
         LinearLayout sub = new LinearLayout(this);
         sub.setGravity(Gravity.CENTER_VERTICAL);
         TextClock date = new TextClock(this);
-        date.setFormat12Hour("EEE, MMM d");
-        date.setFormat24Hour("EEE, MMM d");
+        String df = DATE_FORMATS[clamp(store.dateFormat(), DATE_FORMATS.length)];
+        date.setFormat12Hour(df);
+        date.setFormat24Hour(df);
         date.setTextColor(0xCCFFFFFF);
         date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         sub.addView(date);
         wifiView = new TextView(this);
         wifiView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        wifiView.setPadding(dp(16), 0, 0, 0);
-        sub.addView(wifiView);
+        wifiView.setPadding(dp(12), dp(3), dp(12), dp(3));
+        wifiView.setFocusable(true);
+        wifiView.setClickable(true);
+        wifiView.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? glassPill(true) : null);
+            if (has) wifiView.setTextColor(0xFF0D1B2A); else updateWifi();
+        });
+        wifiView.setOnClickListener(v -> networkDialog());
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-2, -2);
+        wlp.leftMargin = dp(6);
+        wlp.rightMargin = dp(6);
+        sub.addView(wifiView, wlp);
+        dataView = new TextView(this);
+        dataView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        dataView.setTextColor(0xB3FFFFFF);
+        dataView.setVisibility(View.GONE);
+        sub.addView(dataView);
         clockBox.addView(sub);
         bar.addView(clockBox, new LinearLayout.LayoutParams(0, -2, 1f));
 
         TextView search = button("Search");
+        barFocus = search;
+        // Left from Search goes to the Wi-Fi button (not down into the apps), and back.
+        search.setId(View.generateViewId());
+        wifiView.setId(View.generateViewId());
+        search.setNextFocusLeftId(wifiView.getId());
+        wifiView.setNextFocusRightId(search.getId());
+        wifiView.setNextFocusLeftId(wifiView.getId());
+        wifiView.setNextFocusUpId(wifiView.getId());
         search.setOnClickListener(v -> openSearch());
         bar.addView(search);
 
@@ -384,7 +464,18 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private View tileRow(List<String> pkgs, boolean favorites) {
+    private View tileGrid(List<String> pkgs, String section) {
+        GridLayout g = new GridLayout(this);
+        g.setColumnCount(columns());
+        g.setClipChildren(false);
+        g.setClipToPadding(false);
+        g.setPadding(dp(8), dp(16), dp(8), dp(14));
+        for (String p : pkgs) g.addView(tile(apps.get(p), section));
+        lockGridEdges(g);
+        return g;
+    }
+
+    private View tileRow(List<String> pkgs, String section, boolean favorites) {
         HorizontalScrollView hs = new HorizontalScrollView(this);
         hs.setHorizontalScrollBarEnabled(false);
         hs.setClipToPadding(false);
@@ -394,10 +485,11 @@ public class MainActivity extends Activity {
         row.setClipToPadding(false);
         row.setPadding(dp(8), dp(16), dp(8), dp(14));
         for (String p : pkgs) {
-            View t = tile(apps.get(p));
+            View t = tile(apps.get(p), section);
             if (favorites && firstFocusTarget == null) firstFocusTarget = t;
             row.addView(t);
         }
+        lockRowEnds(row);
         hs.addView(row);
         return hs;
     }
@@ -414,14 +506,16 @@ public class MainActivity extends Activity {
         }
         Collections.sort(list, (x, y) -> x.label.compareToIgnoreCase(y.label));
         for (App a : list) {
-            View t = tile(a);
+            View t = tile(a, null);
             if (firstFocusTarget == null) firstFocusTarget = t;
             allGrid.addView(t);
         }
+        lockGridEdges(allGrid);
         allTitle.setText(q.isEmpty() ? "All apps" : "Results (" + list.size() + ")");
     }
 
-    private View tile(App a) {
+    private View tile(App a, String section) {
+        boolean moving = section != null && section.equals(moveSection) && a.pkg.equals(movePkg);
         LinearLayout t = new LinearLayout(this);
         t.setOrientation(LinearLayout.VERTICAL);
         t.setFocusable(true);
@@ -470,7 +564,7 @@ public class MainActivity extends Activity {
         t.addView(card, new LinearLayout.LayoutParams(-2, -2));
 
         TextView label = new TextView(this);
-        label.setText(a.label);
+        label.setText(moving ? "◀  " + a.label + "  ▶" : a.label);
         label.setTextColor(0xB3FFFFFF);
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         label.setSingleLine(true);
@@ -486,6 +580,7 @@ public class MainActivity extends Activity {
         t.setLayoutParams(lp);
 
         t.setOnFocusChangeListener((v, has) -> {
+            if (has) glideTo(v);
             card.setBackground(has ? glass(true, radius) : null);
             card.setElevation(has ? dp(12) : 0);
             card.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).alpha(has ? 1f : 0.85f)
@@ -497,7 +592,8 @@ public class MainActivity extends Activity {
             label.setTypeface(has ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         });
         t.setOnClickListener(v -> launch(a.pkg));
-        t.setOnLongClickListener(v -> { appMenu(a); return true; });
+        t.setOnLongClickListener(v -> { appMenu(a, section); return true; });
+        if (section != null) tileIndex.put(section + "\n" + a.pkg, t);
         return t;
     }
 
@@ -544,6 +640,11 @@ public class MainActivity extends Activity {
                 if (a.banner == null) a.banner = ri.activityInfo.applicationInfo.loadBanner(pm);
             } catch (Exception ignored) { }
             a.icon = ri.loadIcon(pm);
+            File cb = customBannerFile(pkg);
+            if (cb != null) {
+                Bitmap bm = BitmapFactory.decodeFile(cb.getAbsolutePath());
+                if (bm != null) a.banner = new BitmapDrawable(getResources(), bm);
+            }
             apps.put(pkg, a);
         }
     }
@@ -565,16 +666,17 @@ public class MainActivity extends Activity {
         safeStart(i);
     }
 
-    private void appMenu(App a) {
+    private void appMenu(App a, String section) {
         List<String> favs = store.favorites();
         boolean fav = favs.contains(a.pkg);
         List<String> opts = new ArrayList<>();
+        if (section != null && !section.isEmpty()) opts.add("Move (use arrow keys)");
         opts.add(fav ? "Remove from Favorites" : "Add to Favorites");
-        if (fav) { opts.add("Move left"); opts.add("Move right"); }
         opts.add("Add to category…");
         for (String c : store.categories())
             if (store.categoryApps(c).contains(a.pkg)) opts.add("Remove from " + c);
         opts.add("Rename");
+        opts.add("Custom banner");
         opts.add("Hide from All apps");
         opts.add("App info");
 
@@ -591,15 +693,17 @@ public class MainActivity extends Activity {
                         return;
                     }
                     switch (o) {
+                        case "Move (use arrow keys)":
+                            moveSection = section;
+                            movePkg = a.pkg;
+                            pendingFocusKey = section + "\n" + a.pkg;
+                            toast("Use the arrow keys to move " + a.label + ". Press OK when done.");
+                            rebuild();
+                            return;
+                        case "Custom banner": customBannerDialog(a); return;
                         case "Add to category…": addToCategoryDialog(a); return;
                         case "Add to Favorites": f.add(a.pkg); store.setFavorites(f); break;
                         case "Remove from Favorites": f.remove(a.pkg); store.setFavorites(f); break;
-                        case "Move left":
-                            if (idx > 0) { Collections.swap(f, idx, idx - 1); store.setFavorites(f); }
-                            break;
-                        case "Move right":
-                            if (idx >= 0 && idx < f.size() - 1) { Collections.swap(f, idx, idx + 1); store.setFavorites(f); }
-                            break;
                         case "Rename":
                             textDialog("Rename " + a.label, a.label, "Leave empty to reset",
                                     s -> { store.setLabel(a.pkg, s); rebuild(); });
@@ -750,46 +854,70 @@ public class MainActivity extends Activity {
             boolean wifi = c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
             boolean eth = c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET);
             boolean ok = c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
-            String kind = wifi ? "Wi-Fi" : eth ? "Ethernet" : "Network";
+            String kind = wifi ? "Wi-Fi " + signalBars() : eth ? "Ethernet" : "Network";
             wifiView.setText("●  " + kind + (ok ? "" : " (no internet)"));
-            wifiView.setTextColor(ok ? 0xFF66BB6A : 0xFFFFCA28);
+            wifiView.setTextColor(wifiView.isFocused() ? 0xFF0D1B2A : ok ? 0xFF66BB6A : 0xFFFFCA28);
         }
     }
 
     // ------------------------------------------------------------------ ⋯ menu
 
     private void moreMenu() {
-        String[] opts = {"Wallpaper", "Card style", "Accent colour", "Categories",
-                (store.continueWatching() ? "Hide" : "Show") + " Continue watching",
-                "Screensaver", "Hidden apps", "Rename inputs", "Home button setup",
-                "Open Google TV home", "About My Home"};
+        String[] opts = {"Wallpaper", "Card style", "Accent colour", "Focus border",
+                "Clock & date format", "Categories", "Data usage",
+                "Navigation sounds: " + (store.sounds() ? "On" : "Off"), "Screensaver", "Hidden apps",
+                "Rename inputs", "Home button setup", "Open Google TV home", "About My Home"};
         new AlertDialog.Builder(this).setItems(opts, (d, w) -> {
             switch (w) {
                 case 0: wallpaperDialog(); break;
                 case 1: styleDialog(); break;
                 case 2: accentDialog(); break;
-                case 3: categoriesDialog(); break;
-                case 4: store.setContinueWatching(!store.continueWatching()); rebuild(); break;
-                case 5: screensaverDialog(); break;
-                case 6: hiddenDialog(); break;
-                case 7: renameInputsDialog(); break;
-                case 8: homeSetupDialog(); break;
-                case 9: openGoogleHome(); break;
-                case 10: aboutDialog(); break;
+                case 3: borderDialog(); break;
+                case 4: clockFormatDialog(); break;
+                case 5: categoriesDialog(); break;
+                case 6: dataUsageDialog(); break;
+                case 7: store.setSounds(!store.sounds()); toast("Navigation sounds " + (store.sounds() ? "on" : "off")); break;
+                case 8: screensaverDialog(); break;
+                case 9: hiddenDialog(); break;
+                case 10: renameInputsDialog(); break;
+                case 11: homeSetupDialog(); break;
+                case 12: openGoogleHome(); break;
+                case 13: aboutDialog(); break;
             }
         }).show();
     }
 
+    // ---- wallpaper (with video and day/night schedule)
+
     private void wallpaperDialog() {
+        boolean dn = store.dayNight();
+        List<String> opts = new ArrayList<>();
+        opts.add((dn ? "Day wallpaper: " : "Wallpaper: ") + WALLPAPER_NAMES[clamp(store.wallpaper(), WALLPAPER_NAMES.length)]);
+        opts.add("Day/night switch: " + (dn ? "On (night is 7 PM – 7 AM)" : "Off"));
+        if (dn) opts.add("Night wallpaper: " + WALLPAPER_NAMES[clamp(store.nightWallpaper(), WALLPAPER_NAMES.length)]);
         new AlertDialog.Builder(this).setTitle("Wallpaper")
-                .setSingleChoiceItems(WALLPAPER_NAMES, store.wallpaper(), (d, w) -> {
-                    if (w == WALLPAPER_NAMES.length - 1 && !wallpaperFile().exists()) {
+                .setItems(opts.toArray(new String[0]), (d, w) -> {
+                    if (w == 0) pickWallpaper(store.wallpaper(), i -> { store.setWallpaper(i); rebuild(); });
+                    else if (w == 1) { store.setDayNight(!dn); rebuild(); wallpaperDialog(); }
+                    else pickWallpaper(store.nightWallpaper(), i -> { store.setNightWallpaper(i); rebuild(); });
+                }).show();
+    }
+
+    private interface IntResult { void on(int i); }
+
+    private void pickWallpaper(int current, IntResult r) {
+        new AlertDialog.Builder(this).setTitle("Choose wallpaper")
+                .setSingleChoiceItems(WALLPAPER_NAMES, clamp(current, WALLPAPER_NAMES.length), (d, w) -> {
+                    if (w == WP_PICTURE && !wallpaperFile().exists()) {
                         toast("Copy a picture to " + wallpaperFile().getAbsolutePath() + " first");
                         return;
                     }
-                    store.setWallpaper(w);
-                    root.setBackground(wallpaperDrawable());
+                    if (w == WP_VIDEO && !videoFile().exists()) {
+                        toast("Copy a short video to " + videoFile().getAbsolutePath() + " first");
+                        return;
+                    }
                     d.dismiss();
+                    r.on(w);
                 }).show();
     }
 
@@ -797,9 +925,40 @@ public class MainActivity extends Activity {
         return new File(getExternalFilesDir(null), "wallpaper.jpg");
     }
 
-    private Drawable wallpaperDrawable() {
-        int w = store.wallpaper();
-        if (w == WALLPAPER_NAMES.length - 1) {
+    private File videoFile() {
+        return new File(getExternalFilesDir(null), "wallpaper.mp4");
+    }
+
+    private int effectiveWallpaper() {
+        if (!store.dayNight()) return store.wallpaper();
+        int h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        return (h >= 7 && h < 19) ? store.wallpaper() : store.nightWallpaper();
+    }
+
+    /** Sets the background; for a video wallpaper adds a muted, looping video behind everything. */
+    private void applyWallpaper() {
+        int w = effectiveWallpaper();
+        appliedWallpaper = w;
+        if (w == WP_VIDEO && videoFile().exists()) {
+            root.setBackgroundColor(Color.BLACK);
+            android.widget.VideoView vv = new android.widget.VideoView(this);
+            vv.setAudioFocusRequest(android.media.AudioManager.AUDIOFOCUS_NONE); // never pause your music
+            vv.setVideoURI(Uri.fromFile(videoFile()));
+            vv.setOnPreparedListener(mp -> { mp.setLooping(true); mp.setVolume(0f, 0f); vv.start(); });
+            vv.setOnErrorListener((mp, what, extra) -> true);
+            vv.setFocusable(false);
+            root.addView(vv, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+            View dim = new View(this);
+            dim.setBackgroundColor(0x66000000); // keeps text readable over bright videos
+            root.addView(dim, new FrameLayout.LayoutParams(-1, -1));
+            videoView = vv;
+            return;
+        }
+        root.setBackground(wallpaperDrawable(w));
+    }
+
+    private Drawable wallpaperDrawable(int w) {
+        if (w == WP_PICTURE) {
             File f = wallpaperFile();
             if (f.exists()) {
                 BitmapFactory.Options o = new BitmapFactory.Options();
@@ -820,6 +979,344 @@ public class MainActivity extends Activity {
                 glow(glows[0], 0.12f, 0.15f, 0.55f),
                 glow(glows[1], 0.88f, 0.35f, 0.5f),
                 glow(glows[2], 0.45f, 1.0f, 0.6f)});
+    }
+
+    // ---- floating status bar
+
+    private void setBarShown(boolean show) {
+        if (barWrap == null || show == barShown) return;
+        barShown = show;
+        barWrap.animate().translationY(show ? 0 : -barWrap.getHeight()).alpha(show ? 1f : 0f)
+                .setDuration(250).start();
+    }
+
+    private static boolean isInside(View v, View parent) {
+        for (android.view.ViewParent p = v.getParent(); p != null; p = p.getParent()) {
+            if (p == parent) return true;
+        }
+        return v == parent;
+    }
+
+    private static int clamp(int i, int size) {
+        return i < 0 || i >= size ? 0 : i;
+    }
+
+    // ---- smooth focus
+
+    /** Glides the page so the focused row sits comfortably below the status bar. */
+    private void glideTo(View v) {
+        if (scroll == null || content == null || moveSection != null && pendingFocusKey != null) return;
+        android.graphics.Rect r = new android.graphics.Rect();
+        v.getDrawingRect(r);
+        try {
+            content.offsetDescendantRectToMyCoords(v, r);
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        int target = Math.max(0, r.top - dp(150));
+        if (r.top < dp(260)) target = 0; // first rows: keep the status bar in view
+        scroll.smoothScrollTo(0, target);
+    }
+
+    /** Pressing left/right at the end of a row stays put instead of jumping to another row. */
+    private void lockRowEnds(ViewGroup row) {
+        int n = row.getChildCount();
+        if (n == 0) return;
+        View first = row.getChildAt(0), last = row.getChildAt(n - 1);
+        if (first.getId() == View.NO_ID) first.setId(View.generateViewId());
+        if (last.getId() == View.NO_ID) last.setId(View.generateViewId());
+        first.setNextFocusLeftId(first.getId());
+        last.setNextFocusRightId(last.getId());
+    }
+
+    private void lockGridEdges(GridLayout g) {
+        int n = g.getChildCount(), cols = g.getColumnCount();
+        for (int i = 0; i < n; i++) {
+            View c = g.getChildAt(i);
+            if (c.getId() == View.NO_ID) c.setId(View.generateViewId());
+            if (i % cols == 0) c.setNextFocusLeftId(c.getId());
+            if (i % cols == cols - 1 || i == n - 1) c.setNextFocusRightId(c.getId());
+        }
+    }
+
+    // ---- navigation sounds
+
+    private void navSound(int key) {
+        if (!store.sounds()) return;
+        int fx;
+        switch (key) {
+            case KeyEvent.KEYCODE_DPAD_UP: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_UP; break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_DOWN; break;
+            case KeyEvent.KEYCODE_DPAD_LEFT: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_LEFT; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: fx = android.media.AudioManager.FX_FOCUS_NAVIGATION_RIGHT; break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER: fx = android.media.AudioManager.FX_KEY_CLICK; break;
+            default: return;
+        }
+        try {
+            getSystemService(android.media.AudioManager.class).playSoundEffect(fx, 0.4f);
+        } catch (Exception ignored) { }
+    }
+
+    // ---- network details
+
+    private String signalBars() {
+        int level = wifiLevel();
+        String[] bars = {"▁", "▁▃", "▁▃▅", "▁▃▅▇"};
+        return level < 0 ? "" : bars[Math.min(3, level)];
+    }
+
+    /** 0..3, or -1 when unknown. */
+    private int wifiLevel() {
+        try {
+            android.net.wifi.WifiManager wm = getApplicationContext().getSystemService(android.net.wifi.WifiManager.class);
+            android.net.wifi.WifiInfo info = wm.getConnectionInfo();
+            if (info == null || info.getRssi() <= -127) return -1;
+            return android.net.wifi.WifiManager.calculateSignalLevel(info.getRssi(), 4);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void networkDialog() {
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        StringBuilder sb = new StringBuilder();
+        try {
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities c = n == null ? null : cm.getNetworkCapabilities(n);
+            if (c == null) {
+                sb.append("Status: Offline\n");
+            } else {
+                boolean wifi = c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+                boolean ok = c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+                sb.append("Connection: ").append(wifi ? "Wi-Fi" : c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? "Ethernet" : "Other").append('\n');
+                sb.append("Internet: ").append(ok ? "Working" : "Not reachable").append('\n');
+                if (wifi) {
+                    android.net.wifi.WifiManager wm = getApplicationContext().getSystemService(android.net.wifi.WifiManager.class);
+                    android.net.wifi.WifiInfo info = wm.getConnectionInfo();
+                    if (info != null) {
+                        int pct = Math.max(0, Math.min(100, 2 * (info.getRssi() + 100)));
+                        String[] quality = {"Weak", "Fair", "Good", "Excellent"};
+                        int lvl = wifiLevel();
+                        sb.append("Signal: ").append(lvl >= 0 ? quality[Math.min(3, lvl)] : "Unknown")
+                                .append(" (").append(pct).append("%)\n");
+                        sb.append("Link speed: ").append(info.getLinkSpeed()).append(" Mbps\n");
+                        int f = info.getFrequency();
+                        if (f > 0) sb.append("Band: ").append(f >= 5900 ? "6 GHz" : f >= 4900 ? "5 GHz" : "2.4 GHz").append('\n');
+                    }
+                }
+                android.net.LinkProperties lp = cm.getLinkProperties(n);
+                if (lp != null) {
+                    for (android.net.LinkAddress la : lp.getLinkAddresses()) {
+                        if (la.getAddress() instanceof java.net.Inet4Address) {
+                            sb.append("TV address: ").append(la.getAddress().getHostAddress()).append('\n');
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            sb.append("Couldn't read network details\n");
+        }
+        if (dataView != null && dataView.getVisibility() == View.VISIBLE) {
+            sb.append("Used today: ").append(dataView.getText().toString().replace("↕ ", "").replace(" today", "")).append('\n');
+        }
+        new AlertDialog.Builder(this).setTitle("Network")
+                .setMessage(sb.toString().trim())
+                .setPositiveButton("Wi-Fi settings", (d, w) -> safeStart(new Intent(Settings.ACTION_WIFI_SETTINGS)))
+                .setNeutralButton("Network settings", (d, w) -> {
+                    Intent i = new Intent(Settings.ACTION_WIRELESS_SETTINGS);
+                    if (pm.resolveActivity(i, 0) == null) i = new Intent(Settings.ACTION_SETTINGS);
+                    safeStart(i);
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    // ---- arrow-key move mode
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) navSound(e.getKeyCode());
+        if (moveSection == null) {
+            // Up from the top row: bring back the (possibly hidden) status bar.
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
+                    && barWrap != null && barFocus != null) {
+                View f = getCurrentFocus();
+                if (f != null && !isInside(f, barWrap)) {
+                    View next = f.focusSearch(View.FOCUS_UP);
+                    if (next == null || isInside(next, barWrap) || !next.isShown()) {
+                        setBarShown(true);
+                        scroll.smoothScrollTo(0, 0);
+                        barFocus.requestFocus();
+                        return true;
+                    }
+                }
+            }
+            return super.dispatchKeyEvent(e);
+        }
+        int k = e.getKeyCode();
+        boolean grid = moveSection.startsWith("cat:") && store.categoryGrid(moveSection.substring(4));
+        int delta = 0;
+        switch (k) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: delta = -1; break;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: delta = 1; break;
+            case KeyEvent.KEYCODE_DPAD_UP: delta = grid ? -columns() : 0; break;
+            case KeyEvent.KEYCODE_DPAD_DOWN: delta = grid ? columns() : 0; break;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+            case KeyEvent.KEYCODE_BACK:
+                if (e.getAction() == KeyEvent.ACTION_UP) {
+                    pendingFocusKey = moveSection + "\n" + movePkg;
+                    moveSection = null;
+                    movePkg = null;
+                    toast("Saved");
+                    rebuild();
+                }
+                return true;
+            default:
+                return true; // ignore other keys while moving
+        }
+        if (e.getAction() != KeyEvent.ACTION_DOWN || delta == 0) return true;
+
+        List<String> stored = moveSection.equals("fav") ? store.favorites()
+                : store.categoryApps(moveSection.substring(4));
+        List<String> visible = new ArrayList<>();
+        for (String p : stored) if (apps.containsKey(p)) visible.add(p);
+        int from = visible.indexOf(movePkg);
+        int to = Math.max(0, Math.min(visible.size() - 1, from + delta));
+        if (from < 0 || to == from) return true;
+        visible.remove(from);
+        visible.add(to, movePkg);
+        for (String p : stored) if (!visible.contains(p)) visible.add(p); // keep uninstalled ones
+        if (moveSection.equals("fav")) store.setFavorites(visible);
+        else store.setCategoryApps(moveSection.substring(4), visible);
+        pendingFocusKey = moveSection + "\n" + movePkg;
+        rebuild();
+        return true;
+    }
+
+    // ---- custom banners
+
+    private File customBannerFile(String pkg) {
+        File dir = getExternalFilesDir("banners");
+        if (dir == null) return null;
+        for (String ext : new String[]{".png", ".jpg", ".jpeg", ".webp"}) {
+            File f = new File(dir, pkg + ext);
+            if (f.exists()) return f;
+        }
+        return null;
+    }
+
+    private void customBannerDialog(App a) {
+        File dir = getExternalFilesDir("banners");
+        File existing = customBannerFile(a.pkg);
+        AlertDialog.Builder b = new AlertDialog.Builder(this).setTitle("Custom banner for " + a.label)
+                .setMessage("Copy a 16:9 picture (e.g. 320×180) named\n\n" + a.pkg + ".png\n\ninto\n\n"
+                        + (dir != null ? dir.getAbsolutePath() : "(storage unavailable)")
+                        + "\n\nIt replaces the app's banner on this home screen.")
+                .setNegativeButton("Close", null);
+        if (existing != null) {
+            b.setPositiveButton("Remove custom banner", (d, w) -> {
+                if (existing.delete()) toast("Custom banner removed");
+                rebuild();
+            });
+        }
+        b.show();
+    }
+
+    // ---- clock format, focus border
+
+    private void clockFormatDialog() {
+        new AlertDialog.Builder(this).setTitle("Time format")
+                .setSingleChoiceItems(TIME_NAMES, clamp(store.timeFormat(), TIME_NAMES.length), (d, w) -> {
+                    store.setTimeFormat(w);
+                    d.dismiss();
+                    String[] examples = new String[DATE_FORMATS.length];
+                    java.util.Date now = new java.util.Date();
+                    for (int i = 0; i < examples.length; i++) {
+                        examples[i] = new java.text.SimpleDateFormat(DATE_FORMATS[i], Locale.getDefault()).format(now);
+                    }
+                    new AlertDialog.Builder(this).setTitle("Date format")
+                            .setSingleChoiceItems(examples, clamp(store.dateFormat(), examples.length), (d2, w2) -> {
+                                store.setDateFormat(w2);
+                                d2.dismiss();
+                                rebuild();
+                            }).show();
+                }).show();
+    }
+
+    private void borderDialog() {
+        new AlertDialog.Builder(this).setTitle("Focus border")
+                .setSingleChoiceItems(BORDER_NAMES, clamp(store.border(), BORDER_NAMES.length), (d, w) -> {
+                    store.setBorder(w); d.dismiss(); rebuild();
+                }).show();
+    }
+
+    // ---- data usage (today, read from the TV's own counters; no internet needed)
+
+    private boolean hasUsageAccess() {
+        try {
+            android.app.AppOpsManager ops = getSystemService(android.app.AppOpsManager.class);
+            return ops.unsafeCheckOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                    android.os.Process.myUid(), getPackageName()) == android.app.AppOpsManager.MODE_ALLOWED;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void updateDataUsage() {
+        if (dataView == null) return;
+        if (!store.showDataUsage() || !hasUsageAccess()) { dataView.setVisibility(View.GONE); return; }
+        final TextView target = dataView;
+        new Thread(() -> {
+            long total = 0;
+            try {
+                android.app.usage.NetworkStatsManager nsm =
+                        getSystemService(android.app.usage.NetworkStatsManager.class);
+                java.util.Calendar c = java.util.Calendar.getInstance();
+                c.set(java.util.Calendar.HOUR_OF_DAY, 0);
+                c.set(java.util.Calendar.MINUTE, 0);
+                c.set(java.util.Calendar.SECOND, 0);
+                long start = c.getTimeInMillis(), now = System.currentTimeMillis();
+                for (int type : new int[]{ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_ETHERNET}) {
+                    try {
+                        android.app.usage.NetworkStats.Bucket b = nsm.querySummaryForDevice(type, null, start, now);
+                        if (b != null) total += b.getRxBytes() + b.getTxBytes();
+                    } catch (Exception ignored) { }
+                }
+            } catch (Exception ignored) { }
+            final String text = "↕ " + humanBytes(total) + " today";
+            runOnUiThread(() -> { target.setText(text); target.setVisibility(View.VISIBLE); });
+        }).start();
+    }
+
+    private static String humanBytes(long b) {
+        if (b >= 1L << 30) return String.format(Locale.US, "%.1f GB", b / (double) (1L << 30));
+        if (b >= 1L << 20) return String.format(Locale.US, "%.0f MB", b / (double) (1L << 20));
+        return String.format(Locale.US, "%.0f KB", b / 1024.0);
+    }
+
+    private void dataUsageDialog() {
+        if (!hasUsageAccess()) {
+            new AlertDialog.Builder(this).setTitle("Data usage")
+                    .setMessage("To show how much internet the TV used today, turn on \"Usage access\" for "
+                            + "My Home.\n\nThis only reads the TV's own counters. My Home still has no internet "
+                            + "access.")
+                    .setPositiveButton("Open Usage access settings", (d, w) -> {
+                        Intent i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+                        if (pm.resolveActivity(i, 0) == null) {
+                            toast("Not available on this TV. From a PC run: adb shell appops set "
+                                    + getPackageName() + " GET_USAGE_STATS allow");
+                        } else {
+                            safeStart(i);
+                        }
+                    })
+                    .setNegativeButton("Close", null).show();
+            return;
+        }
+        store.setShowDataUsage(!store.showDataUsage());
+        toast(store.showDataUsage() ? "Data usage shown" : "Data usage hidden");
+        updateDataUsage();
     }
 
     private void hiddenDialog() {
@@ -866,7 +1363,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("My Home 1.1")
+        new AlertDialog.Builder(this).setTitle("My Home 1.2")
                 .setMessage("A simple, ad-free home screen.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -997,7 +1494,8 @@ public class MainActivity extends Activity {
     }
 
     private void categoryActions(String cat) {
-        String[] opts = {"Rename", "Move up", "Move down", "Delete"};
+        boolean grid = store.categoryGrid(cat);
+        String[] opts = {"Rename", "Move up", "Move down", "Delete", grid ? "Show as a row" : "Show as a grid"};
         new AlertDialog.Builder(this).setTitle(cat).setItems(opts, (d, w) -> {
             List<String> c = store.categories();
             int i = c.indexOf(cat);
@@ -1012,6 +1510,7 @@ public class MainActivity extends Activity {
                 case 1: if (i > 0) { Collections.swap(c, i, i - 1); store.setCategories(c); } break;
                 case 2: if (i >= 0 && i < c.size() - 1) { Collections.swap(c, i, i + 1); store.setCategories(c); } break;
                 case 3: store.deleteCategory(cat); break;
+                case 4: store.setCategoryGrid(cat, !grid); break;
             }
             rebuild();
         }).show();
@@ -1149,7 +1648,8 @@ public class MainActivity extends Activity {
         GradientDrawable body = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
                 focused ? new int[]{0x55FFFFFF, 0x2EFFFFFF} : new int[]{0x26FFFFFF, 0x0FFFFFFF});
         body.setCornerRadius(dp(radiusDp));
-        body.setStroke(focused ? dp(3) : dp(1), focused ? 0xFFFFFFFF : 0x40FFFFFF);
+        int bw = BORDER_DP[clamp(store.border(), BORDER_DP.length)];
+        body.setStroke(focused ? dp(bw) : dp(1), focused ? 0xFFFFFFFF : 0x40FFFFFF);
 
         GradientDrawable sheen = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{focused ? 0x33FFFFFF : 0x1AFFFFFF, 0x00FFFFFF});
@@ -1164,7 +1664,7 @@ public class MainActivity extends Activity {
         LayerDrawable ld = new LayerDrawable(new Drawable[]{glowRing, body, sheen, inner});
         ld.setLayerInset(1, glowPad, glowPad, glowPad, glowPad);
         ld.setLayerInset(2, glowPad, glowPad, glowPad, glowPad + dp(40));
-        int in = glowPad + dp(3);
+        int in = glowPad + dp(bw);
         ld.setLayerInset(3, in, in, in, in);
         return ld;
     }

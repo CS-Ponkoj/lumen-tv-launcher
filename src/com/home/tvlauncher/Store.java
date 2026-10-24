@@ -83,6 +83,25 @@ final class Store {
         p.edit().remove("cat_" + from).apply();
     }
 
+    boolean categoryGrid(String name) { return p.getBoolean("catgrid_" + name, false); }
+    void setCategoryGrid(String name, boolean grid) { p.edit().putBoolean("catgrid_" + name, grid).apply(); }
+
+    // ---- wallpaper schedule, clock, data usage, focus border ----
+    boolean dayNight() { return p.getBoolean("day_night", false); }
+    void setDayNight(boolean b) { p.edit().putBoolean("day_night", b).apply(); }
+    int nightWallpaper() { return p.getInt("night_wallpaper", 5); }
+    void setNightWallpaper(int w) { p.edit().putInt("night_wallpaper", w).apply(); }
+    int timeFormat() { return p.getInt("time_format", 0); }
+    void setTimeFormat(int f) { p.edit().putInt("time_format", f).apply(); }
+    int dateFormat() { return p.getInt("date_format", 0); }
+    void setDateFormat(int f) { p.edit().putInt("date_format", f).apply(); }
+    boolean showDataUsage() { return p.getBoolean("show_data", true); }
+    void setShowDataUsage(boolean b) { p.edit().putBoolean("show_data", b).apply(); }
+    boolean sounds() { return p.getBoolean("sounds", true); }
+    void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
+    int border() { return p.getInt("border", 1); }
+    void setBorder(int b) { p.edit().putInt("border", b).apply(); }
+
     // ---- look ----
     static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2;
     int cardStyle() { return p.getInt("card_style", STYLE_MODERN); }

@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.home.tvlauncher"
-    android:versionCode="2"
-    android:versionName="1.1">
+    android:versionCode="3"
+    android:versionName="1.2">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="30" />
 
     <!-- No INTERNET permission: the launcher never goes online. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Optional: today's data usage in the status bar (user turns on "Usage access"). -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <!-- Read the system "Watch Next" list for the Continue watching row. -->
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
 

@@ -1589,10 +1589,12 @@ public class MainActivity extends Activity {
         if (w < 0 || w >= WALLPAPER_COLORS.length) w = 0;
         GradientDrawable base = new GradientDrawable(GradientDrawable.Orientation.TL_BR, WALLPAPER_COLORS[w]);
         int[] glows = WALLPAPER_GLOWS[w];
-        return new LayerDrawable(new Drawable[]{base,
-                glow(glows[0], 0.12f, 0.15f, 0.55f),
-                glow(glows[1], 0.88f, 0.35f, 0.5f),
-                glow(glows[2], 0.45f, 1.0f, 0.6f)});
+        Drawable g1 = glow(glows[0], 0.12f, 0.15f, 0.55f), g2 = glow(glows[1], 0.88f, 0.35f, 0.5f),
+                g3 = glow(glows[2], 0.45f, 1.0f, 0.6f);
+        if (w == 0) { // Midnight: add a soft star field
+            return new LayerDrawable(new Drawable[]{base, g1, g2, g3, new ArtWallpaper(ArtWallpaper.STARS_ONLY)});
+        }
+        return new LayerDrawable(new Drawable[]{base, g1, g2, g3});
     }
 
     // ---- floating status bar

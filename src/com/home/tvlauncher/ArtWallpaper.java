@@ -21,6 +21,8 @@ import java.util.Random;
  */
 final class ArtWallpaper extends Drawable {
     static final String[] NAMES = {"Aurora", "Sunset hills", "Misty mountains", "Moonlit sea"};
+    /** Transparent layer with only stars, laid over the plain Midnight gradient. */
+    static final int STARS_ONLY = 100;
 
     private final int kind;
     private Bitmap cache;
@@ -45,6 +47,7 @@ final class ArtWallpaper extends Drawable {
             case 1: sunset(c, w, h); break;
             case 2: mountains(c, w, h); break;
             case 3: sea(c, w, h); break;
+            case STARS_ONLY: stars(c, w, h, 0.85f, 260, 42); break;
             default: aurora(c, w, h); break;
         }
     }
@@ -200,5 +203,5 @@ final class ArtWallpaper extends Drawable {
 
     @Override public void setAlpha(int alpha) { }
     @Override public void setColorFilter(ColorFilter cf) { }
-    @Override public int getOpacity() { return PixelFormat.OPAQUE; }
+    @Override public int getOpacity() { return kind == STARS_ONLY ? PixelFormat.TRANSLUCENT : PixelFormat.OPAQUE; }
 }

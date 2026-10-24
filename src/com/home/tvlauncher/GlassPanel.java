@@ -14,7 +14,7 @@ import android.widget.FrameLayout;
  * copy of the wallpaper, lined up with where the panel sits on screen, then a light tint and rim.
  */
 final class GlassPanel extends FrameLayout {
-    private final Bitmap blur;
+    private Bitmap blur;
     private final float radius;
     private final Paint bitmapPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint tint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -32,6 +32,12 @@ final class GlassPanel extends FrameLayout {
         rim.setStyle(Paint.Style.STROKE);
         rim.setStrokeWidth(c.getResources().getDisplayMetrics().density);
         rim.setColor(0x4DFFFFFF);
+    }
+
+    void setBlur(Bitmap b) {
+        blur = b;
+        tint.setColor(b != null ? 0x26FFFFFF : 0x40101622);
+        invalidate();
     }
 
     @Override

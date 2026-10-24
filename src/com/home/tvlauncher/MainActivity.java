@@ -74,8 +74,9 @@ public class MainActivity extends Activity {
     private static final String[] WALLPAPER_NAMES = {
             "Midnight", "Deep blue", "Charcoal", "Forest", "Plum", "Black",
             "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)",
-            "Aurora (art)", "Sunset hills (art)", "Misty mountains (art)", "Moonlit sea (art)"};
-    private static final int WP_ART = 8;
+            "Aurora (art)", "Sunset hills (art)", "Misty mountains (art)", "Moonlit sea (art)",
+            "Slideshow (art + your pictures)"};
+    private static final int WP_ART = 8, WP_SLIDESHOW = 12;
     private static final int WP_PICTURE = 6, WP_VIDEO = 7;
 
     private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
@@ -198,6 +199,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         handler.removeCallbacks(minuteTick);
+        handler.removeCallbacks(slideTick);
         if (videoView != null) videoView.stopPlayback();
         super.onPause();
     }
@@ -223,7 +225,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (panel != null) { closePanel(true); return; }
+        if (panel != null) {
+            if (panelOnSubPage) showMainPage(); else closePanel(true);
+            return;
+        }
         // A home screen has nowhere to go back to. Back only closes search.
         if (searchBox != null && searchBox.getVisibility() == View.VISIBLE) closeSearch();
     }
@@ -402,6 +407,9 @@ public class MainActivity extends Activity {
         updateWifi();
         updateSleepLabel();
         updateDataUsage();
+        // (Re)start the slideshow timer with the current interval.
+        handler.removeCallbacks(slideTick);
+        handler.postDelayed(slideTick, Math.max(1, store.slideMinutes()) * 60_000L);
         final View pending = pendingFocusKey != null ? tileIndex.get(pendingFocusKey) : null;
         pendingFocusKey = null;
         final View first = firstFocusTarget;
@@ -596,101 +604,155 @@ public class MainActivity extends Activity {
 
     // ---- side panel (replaces the old pop-up menu)
 
+    // ---- side panel with sub-pages (Arc-style; replaces the old pop-up menus)
+
     private View panel;
+    private LinearLayout panelList;
+    private ScrollView panelScroll;
+    private boolean panelOnSubPage;
+    private String panelReturnLabel;
 
     private static final class PanelItem {
         final int icon; final String label; final Runnable action;
+        boolean checked; int swatch; boolean header; boolean stay; boolean focus;
         PanelItem(int icon, String label, Runnable action) { this.icon = icon; this.label = label; this.action = action; }
+        static PanelItem header(String text) { PanelItem p = new PanelItem(0, text, null); p.header = true; return p; }
+        /** A choice row: stays in the panel, shows a check when selected. */
+        static PanelItem choice(String label, boolean checked, Runnable action) {
+            PanelItem p = new PanelItem(0, label, action); p.checked = checked; p.stay = true; return p;
+        }
+        PanelItem swatch(int color) { swatch = color; return this; }
     }
 
     private void openPanel() {
-        if (panel != null) return;
+        if (panel == null) buildPanelFrame();
+        showMainPage();
+    }
+
+    private void buildPanelFrame() {
         FrameLayout overlay = new FrameLayout(this);
         overlay.setBackgroundColor(0x99000000);
         overlay.setClickable(true);
 
-        ScrollView sv = new ScrollView(this);
-        sv.setVerticalScrollBarEnabled(false);
+        panelScroll = new ScrollView(this);
+        panelScroll.setVerticalScrollBarEnabled(false);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(0xF2181B22);
         float r = dp(28);
         bg.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
-        sv.setBackground(bg);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(18), dp(28), dp(18), dp(28));
-        sv.addView(list);
+        panelScroll.setBackground(bg);
+        panelList = new LinearLayout(this);
+        panelList.setOrientation(LinearLayout.VERTICAL);
+        panelList.setPadding(dp(18), dp(28), dp(18), dp(28));
+        panelScroll.addView(panelList);
 
-        TextView title = new TextView(this);
-        title.setText("Lumen");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        title.setPadding(dp(14), 0, 0, dp(8));
-        list.addView(title);
-
-        View firstRow = null;
-        Object[][] sections = {
-                {"Quick", new PanelItem[]{
-                        new PanelItem(android.R.drawable.ic_menu_search, "Search apps", this::openSearch),
-                        new PanelItem(android.R.drawable.ic_lock_idle_alarm, sleepLabel(), this::sleepDialog),
-                        new PanelItem(android.R.drawable.ic_media_play, "Play Store", () -> launch("com.android.vending")),
-                        new PanelItem(android.R.drawable.ic_menu_slideshow, "HDMI inputs", this::inputsDialog),
-                        new PanelItem(android.R.drawable.ic_menu_manage, "TV settings",
-                                () -> safeStart(new Intent(Settings.ACTION_SETTINGS)))}},
-                {"Look", new PanelItem[]{
-                        new PanelItem(android.R.drawable.ic_menu_view, "Layout: " + (store.layout() == Store.LAYOUT_SHOWCASE ? "Showcase" : "Classic"), this::layoutDialog),
-                        new PanelItem(android.R.drawable.ic_menu_gallery, "Wallpaper", this::wallpaperDialog),
-                        new PanelItem(android.R.drawable.ic_menu_crop, "Card style", this::styleDialog),
-                        new PanelItem(android.R.drawable.ic_menu_edit, "Accent colour", this::accentDialog),
-                        new PanelItem(android.R.drawable.ic_menu_zoom, "Focus style", this::focusStyleDialog),
-                        new PanelItem(android.R.drawable.ic_menu_recent_history, "Clock & date format", this::clockFormatDialog)}},
-                {"Home screen", new PanelItem[]{
-                        new PanelItem(android.R.drawable.ic_menu_sort_by_size, "Categories", this::categoriesDialog),
-                        new PanelItem(android.R.drawable.ic_menu_close_clear_cancel, "Hidden apps", this::hiddenDialog),
-                        new PanelItem(android.R.drawable.ic_menu_edit, "Rename inputs", this::renameInputsDialog),
-                        new PanelItem(android.R.drawable.ic_menu_upload, "Data usage", this::dataUsageDialog),
-                        new PanelItem(android.R.drawable.ic_lock_silent_mode_off,
-                                "Navigation sounds: " + (store.sounds() ? "On" : "Off"), () -> {
-                                    store.setSounds(!store.sounds());
-                                    toast("Navigation sounds " + (store.sounds() ? "on" : "off"));
-                                })}},
-                {"System", new PanelItem[]{
-                        new PanelItem(android.R.drawable.ic_menu_slideshow, "Screensaver", this::screensaverDialog),
-                        new PanelItem(android.R.drawable.ic_menu_revert, "Home button setup", this::homeSetupDialog),
-                        new PanelItem(android.R.drawable.ic_menu_mapmode, "Open Google TV home", this::openGoogleHome),
-                        new PanelItem(android.R.drawable.ic_menu_info_details, "About Lumen", this::aboutDialog)}}};
-
-        for (Object[] sec : sections) {
-            TextView h = new TextView(this);
-            h.setText(((String) sec[0]).toUpperCase(Locale.ROOT));
-            h.setTextColor(0x80FFFFFF);
-            h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            h.setLetterSpacing(0.12f);
-            h.setPadding(dp(14), dp(18), 0, dp(6));
-            list.addView(h);
-            for (PanelItem it : (PanelItem[]) sec[1]) {
-                View row = panelRow(it);
-                if (firstRow == null) firstRow = row;
-                list.addView(row);
-            }
-        }
-
-        TextView by = credit();
-        by.setGravity(Gravity.START);
-        by.setPadding(dp(14), dp(24), 0, 0);
-        list.addView(by);
-
-        overlay.addView(sv, new FrameLayout.LayoutParams(dp(360), -1, Gravity.START));
+        overlay.addView(panelScroll, new FrameLayout.LayoutParams(dp(380), -1, Gravity.START));
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
         panel = overlay;
         scroll.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
         if (barWrap instanceof ViewGroup) ((ViewGroup) barWrap).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-        sv.setTranslationX(-dp(360));
-        sv.animate().translationX(0).setDuration(220).start();
+        panelScroll.setTranslationX(-dp(380));
+        panelScroll.animate().translationX(0).setDuration(220).start();
         overlay.setAlpha(0f);
         overlay.animate().alpha(1f).setDuration(220).start();
-        if (firstRow != null) firstRow.requestFocus();
+    }
+
+    private void showMainPage() {
+        panelOnSubPage = false;
+        List<PanelItem> items = new ArrayList<>();
+        items.add(PanelItem.header("Quick"));
+        items.add(new PanelItem(android.R.drawable.ic_menu_search, "Search apps", this::openSearch));
+        items.add(sub(android.R.drawable.ic_lock_idle_alarm, sleepLabel(), this::sleepPage));
+        items.add(new PanelItem(android.R.drawable.ic_media_play, "Play Store", () -> launch("com.android.vending")));
+        items.add(new PanelItem(android.R.drawable.ic_menu_slideshow, "HDMI inputs", this::inputsDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_manage, "TV settings",
+                () -> safeStart(new Intent(Settings.ACTION_SETTINGS))));
+        items.add(PanelItem.header("Look"));
+        items.add(sub(android.R.drawable.ic_menu_view, "Layout", this::layoutPage));
+        items.add(sub(android.R.drawable.ic_menu_gallery, "Wallpaper", this::wallpaperPage));
+        items.add(sub(android.R.drawable.ic_menu_crop, "Card style", this::cardStylePage));
+        items.add(sub(android.R.drawable.ic_menu_edit, "Accent colour", this::accentPage));
+        items.add(sub(android.R.drawable.ic_menu_zoom, "Focus style", this::focusPage));
+        items.add(sub(android.R.drawable.ic_menu_recent_history, "Clock & date", this::clockPage));
+        items.add(PanelItem.header("Home screen"));
+        items.add(new PanelItem(android.R.drawable.ic_menu_sort_by_size, "Categories", this::categoriesDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_close_clear_cancel, "Hidden apps", this::hiddenDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_edit, "Rename inputs", this::renameInputsDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_upload, "Data usage", this::dataUsageDialog));
+        PanelItem snd = new PanelItem(android.R.drawable.ic_lock_silent_mode_off,
+                "Navigation sounds: " + (store.sounds() ? "On" : "Off"), () -> {
+                    store.setSounds(!store.sounds());
+                    showMainPage();
+                });
+        snd.stay = true;
+        items.add(snd);
+        items.add(PanelItem.header("System"));
+        items.add(new PanelItem(android.R.drawable.ic_menu_slideshow, "Screensaver", this::screensaverDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_revert, "Home button setup", this::homeSetupDialog));
+        items.add(new PanelItem(android.R.drawable.ic_menu_mapmode, "Open Google TV home", this::openGoogleHome));
+        items.add(new PanelItem(android.R.drawable.ic_menu_info_details, "About Lumen", this::aboutDialog));
+        renderPanel("Lumen", items, true);
+    }
+
+    private PanelItem sub(int icon, String label, Runnable page) {
+        PanelItem p = new PanelItem(icon, label + "  ›", () -> {
+            panelOnSubPage = true;
+            panelReturnLabel = label;
+            page.run();
+        });
+        p.focus = label.equals(panelReturnLabel) && !panelOnSubPage;
+        p.stay = true;
+        return p;
+    }
+
+    private void renderPanel(String title, List<PanelItem> items, boolean main) {
+        panelList.removeAllViews();
+        TextView t = new TextView(this);
+        t.setText(main ? title : "‹  " + title);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, main ? 26 : 22);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        t.setPadding(dp(14), 0, 0, dp(8));
+        panelList.addView(t);
+        View focusRow = null, firstRow = null;
+        for (PanelItem it : items) {
+            if (it.header) {
+                TextView h = new TextView(this);
+                h.setText(it.label.toUpperCase(Locale.ROOT));
+                h.setTextColor(0x80FFFFFF);
+                h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                h.setLetterSpacing(0.12f);
+                h.setPadding(dp(14), dp(18), 0, dp(6));
+                panelList.addView(h);
+                continue;
+            }
+            View row = panelRow(it);
+            if (firstRow == null) firstRow = row;
+            if ((it.checked || it.focus) && focusRow == null) focusRow = row;
+            panelList.addView(row);
+        }
+        if (main) {
+            TextView by = credit();
+            by.setGravity(Gravity.START);
+            by.setPadding(dp(14), dp(24), 0, 0);
+            panelList.addView(by);
+        } else {
+            TextView hint = new TextView(this);
+            hint.setText("Press Back to return");
+            hint.setTextColor(0x66FFFFFF);
+            hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            hint.setPadding(dp(14), dp(20), 0, 0);
+            panelList.addView(hint);
+        }
+        View target = focusRow != null ? focusRow : firstRow;
+        panelScroll.scrollTo(0, 0);
+        if (target != null) {
+            final View tv = target;
+            panelScroll.post(() -> {
+                tv.requestFocus();
+                panelScroll.smoothScrollTo(0, Math.max(0, tv.getTop() - dp(200)));
+            });
+        }
     }
 
     private View panelRow(PanelItem it) {
@@ -699,10 +761,20 @@ public class MainActivity extends Activity {
         row.setFocusable(true);
         row.setClickable(true);
         row.setPadding(dp(14), dp(11), dp(14), dp(11));
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(it.icon);
-        icon.setColorFilter(0xE6FFFFFF);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        if (it.icon != 0) {
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(it.icon);
+            icon.setColorFilter(0xE6FFFFFF);
+            row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        } else if (it.swatch != 0) {
+            View sw = new View(this);
+            GradientDrawable dot = new GradientDrawable();
+            dot.setShape(GradientDrawable.OVAL);
+            dot.setColor(it.swatch);
+            dot.setStroke(dp(1), 0x66FFFFFF);
+            sw.setBackground(dot);
+            row.addView(sw, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        }
         TextView label = new TextView(this);
         label.setText(it.label);
         label.setTextColor(0xE6FFFFFF);
@@ -710,8 +782,15 @@ public class MainActivity extends Activity {
         label.setSingleLine(true);
         label.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, -2, 1f);
-        llp.leftMargin = dp(18);
+        llp.leftMargin = (it.icon != 0 || it.swatch != 0) ? dp(18) : 0;
         row.addView(label, llp);
+        if (it.checked) {
+            TextView check = new TextView(this);
+            check.setText("✓");
+            check.setTextColor(accentColor());
+            check.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            row.addView(check);
+        }
         row.setOnFocusChangeListener((v, has) -> {
             GradientDrawable g = new GradientDrawable();
             g.setCornerRadius(dp(14));
@@ -721,7 +800,7 @@ public class MainActivity extends Activity {
             label.setTextColor(has ? Color.WHITE : 0xE6FFFFFF);
         });
         row.setOnClickListener(v -> {
-            closePanel(false);
+            if (!it.stay) closePanel(false);
             it.action.run();
         });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
@@ -732,13 +811,209 @@ public class MainActivity extends Activity {
 
     private void closePanel(boolean restoreFocus) {
         if (panel == null) return;
+        panelReturnLabel = null;
         View p = panel;
         panel = null;
+        panelOnSubPage = false;
         root.removeView(p);
         scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         if (barWrap instanceof ViewGroup) ((ViewGroup) barWrap).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         if (restoreFocus && barFocus != null) barFocus.requestFocus();
     }
+
+    /** Apply a change and refresh the home screen behind the panel, keeping the panel on this page. */
+    private void applyLive(Runnable change, Runnable page) {
+        change.run();
+        rebuild();          // removes the panel along with everything else
+        buildPanelFrame();  // put it straight back, without the slide-in animation
+        panelScroll.animate().cancel();
+        panelScroll.setTranslationX(0);
+        panel.animate().cancel();
+        panel.setAlpha(1f);
+        panelOnSubPage = true;
+        page.run();
+    }
+
+    // ---- sub-pages
+
+    private void layoutPage() {
+        List<PanelItem> items = new ArrayList<>();
+        String[] names = {"Showcase (wallpaper + glass dock)", "Classic (rows)"};
+        for (int i = 0; i < names.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(names[i], store.layout() == i, () -> applyLive(() -> store.setLayout(v), this::layoutPage)));
+        }
+        renderPanel("Layout", items, false);
+    }
+
+    private void wallpaperPage() {
+        List<PanelItem> items = new ArrayList<>();
+        boolean dn = store.dayNight();
+        items.add(PanelItem.header(dn ? "Daytime wallpaper" : "Wallpaper"));
+        addWallpaperChoices(items, store.wallpaper(), i -> store.setWallpaper(i), this::wallpaperPage);
+        items.add(PanelItem.header("Options"));
+        items.add(PanelItem.choice("Day/night switch (night 7 PM – 7 AM)", dn,
+                () -> applyLive(() -> store.setDayNight(!dn), this::wallpaperPage)));
+        if (dn) items.add(sub(0, "Night wallpaper: " + WALLPAPER_NAMES[clamp(store.nightWallpaper(), WALLPAPER_NAMES.length)], this::nightWallpaperPage));
+        if (store.wallpaper() == WP_SLIDESHOW || dn && store.nightWallpaper() == WP_SLIDESHOW) {
+            items.add(sub(0, "Slideshow: change every " + store.slideMinutes() + " min", this::slideIntervalPage));
+        }
+        renderPanel("Wallpaper", items, false);
+    }
+
+    private void nightWallpaperPage() {
+        List<PanelItem> items = new ArrayList<>();
+        addWallpaperChoices(items, store.nightWallpaper(), i -> store.setNightWallpaper(i), this::nightWallpaperPage);
+        renderPanel("Night wallpaper", items, false);
+    }
+
+    private void addWallpaperChoices(List<PanelItem> items, int current, IntResult set, Runnable page) {
+        int[] order = {WP_SLIDESHOW, WP_ART, WP_ART + 1, WP_ART + 2, WP_ART + 3, 0, 1, 2, 3, 4, 5, WP_PICTURE, WP_VIDEO};
+        for (int w : order) {
+            PanelItem it = PanelItem.choice(WALLPAPER_NAMES[w], current == w, () -> {
+                if (w == WP_PICTURE && !wallpaperFile().exists()) {
+                    toast("Copy a picture to " + wallpaperFile().getAbsolutePath() + " first");
+                    return;
+                }
+                if (w == WP_VIDEO && !videoFile().exists()) {
+                    toast("Copy a short video to " + videoFile().getAbsolutePath() + " first");
+                    return;
+                }
+                applyLive(() -> set.on(w), page);
+            });
+            if (w < WALLPAPER_COLORS.length) it.swatch(WALLPAPER_COLORS[w][2]);
+            items.add(it);
+        }
+    }
+
+    private void slideIntervalPage() {
+        List<PanelItem> items = new ArrayList<>();
+        for (int m : new int[]{1, 5, 15, 30, 60}) {
+            items.add(PanelItem.choice("Every " + m + (m == 1 ? " minute" : " minutes"), store.slideMinutes() == m,
+                    () -> applyLive(() -> store.setSlideMinutes(m), this::slideIntervalPage)));
+        }
+        File dir = getExternalFilesDir("wallpapers");
+        items.add(PanelItem.header("Your pictures"));
+        PanelItem info = new PanelItem(0, slidePictures().size() + " found in " + (dir != null ? dir.getAbsolutePath() : "-"), () -> { });
+        info.stay = true;
+        items.add(info);
+        renderPanel("Slideshow", items, false);
+    }
+
+    private void cardStylePage() {
+        List<PanelItem> items = new ArrayList<>();
+        for (int i = 0; i < STYLE_NAMES.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(STYLE_NAMES[i], store.cardStyle() == i, () -> applyLive(() -> store.setCardStyle(v), this::cardStylePage)));
+        }
+        renderPanel("Card style", items, false);
+    }
+
+    private void accentPage() {
+        List<PanelItem> items = new ArrayList<>();
+        for (int i = 0; i < ACCENT_NAMES.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(ACCENT_NAMES[i], store.accent() == i,
+                    () -> applyLive(() -> store.setAccent(v), this::accentPage)).swatch(ACCENT_COLORS[i]));
+        }
+        renderPanel("Accent colour", items, false);
+    }
+
+    private void focusPage() {
+        List<PanelItem> items = new ArrayList<>();
+        items.add(PanelItem.header("Style"));
+        String[] names = {"Glass glow (lift and glow)", "Minimal (clean white border)"};
+        for (int i = 0; i < names.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(names[i], store.focusStyle() == i, () -> applyLive(() -> store.setFocusStyle(v), this::focusPage)));
+        }
+        items.add(PanelItem.header("Border thickness"));
+        for (int i = 0; i < BORDER_NAMES.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(BORDER_NAMES[i], store.border() == i, () -> applyLive(() -> store.setBorder(v), this::focusPage)));
+        }
+        renderPanel("Focus style", items, false);
+    }
+
+    private void clockPage() {
+        List<PanelItem> items = new ArrayList<>();
+        items.add(PanelItem.header("Time"));
+        for (int i = 0; i < TIME_NAMES.length; i++) {
+            final int v = i;
+            items.add(PanelItem.choice(TIME_NAMES[i], store.timeFormat() == i, () -> applyLive(() -> store.setTimeFormat(v), this::clockPage)));
+        }
+        items.add(PanelItem.header("Date"));
+        java.util.Date now = new java.util.Date();
+        for (int i = 0; i < DATE_FORMATS.length; i++) {
+            final int v = i;
+            String ex = new java.text.SimpleDateFormat(DATE_FORMATS[i], Locale.getDefault()).format(now);
+            items.add(PanelItem.choice(ex, store.dateFormat() == i, () -> applyLive(() -> store.setDateFormat(v), this::clockPage)));
+        }
+        renderPanel("Clock & date", items, false);
+    }
+
+    private void sleepPage() {
+        List<PanelItem> items = new ArrayList<>();
+        boolean on = store.sleepAt() > System.currentTimeMillis();
+        items.add(PanelItem.choice("Off", !on, () -> { setSleep(0); sleepPage(); }));
+        for (int m : new int[]{15, 30, 60, 90, 120}) {
+            items.add(PanelItem.choice(m + " minutes", false, () -> { setSleep(m); closePanel(true); }));
+        }
+        renderPanel(on ? sleepLabel() : "Sleep timer", items, false);
+    }
+
+    // ---- wallpaper slideshow (art + your own pictures, all on the TV)
+
+    private List<File> slidePictures() {
+        List<File> out = new ArrayList<>();
+        File dir = getExternalFilesDir("wallpapers");
+        File[] fs = dir != null ? dir.listFiles() : null;
+        if (fs != null) {
+            for (File f : fs) {
+                String n = f.getName().toLowerCase(Locale.ROOT);
+                if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp")) out.add(f);
+            }
+        }
+        Collections.sort(out);
+        return out;
+    }
+
+    private int slideCount() {
+        return ArtWallpaper.NAMES.length + slidePictures().size();
+    }
+
+    private Drawable slideDrawable(int index) {
+        int n = slideCount();
+        int i = ((index % n) + n) % n;
+        if (i < ArtWallpaper.NAMES.length) return new ArtWallpaper(i);
+        File f = slidePictures().get(i - ArtWallpaper.NAMES.length);
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inSampleSize = 2;
+        Bitmap bm = BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        if (bm == null) return new ArtWallpaper(0);
+        return new LayerDrawable(new Drawable[]{new BitmapDrawable(getResources(), bm), new ColorDrawable(0x66000000)});
+    }
+
+    private final Runnable slideTick = new Runnable() {
+        @Override public void run() {
+            if (effectiveWallpaper() == WP_SLIDESHOW && videoView == null && root != null) {
+                store.setSlideIndex(store.slideIndex() + 1);
+                Drawable next = slideDrawable(store.slideIndex());
+                Drawable current = root.getBackground();
+                if (current != null) {
+                    android.graphics.drawable.TransitionDrawable td =
+                            new android.graphics.drawable.TransitionDrawable(new Drawable[]{current, next});
+                    td.setCrossFadeEnabled(true);
+                    root.setBackground(td);
+                    td.startTransition(1500);
+                } else {
+                    root.setBackground(next);
+                }
+                if (dock != null) dock.setBlur(blurredWallpaper());
+            }
+            handler.postDelayed(this, Math.max(1, store.slideMinutes()) * 60_000L);
+        }
+    };
 
     private String sleepLabel() {
         long left = store.sleepAt() - System.currentTimeMillis();
@@ -780,7 +1055,8 @@ public class MainActivity extends Activity {
     private Bitmap blurredWallpaper() {
         int w = effectiveWallpaper();
         if (w == WP_VIDEO && videoFile().exists()) return null; // video: plain tinted glass
-        if (blurCache != null && blurCacheId == w) return blurCache;
+        int key = w == WP_SLIDESHOW ? 1000 + ((store.slideIndex() % slideCount()) + slideCount()) % slideCount() : w;
+        if (blurCache != null && blurCacheId == key) return blurCache;
         try {
             int sw = getResources().getDisplayMetrics().widthPixels;
             int sh = getResources().getDisplayMetrics().heightPixels;
@@ -792,7 +1068,7 @@ public class MainActivity extends Activity {
             full.recycle();
             blurCache = GlassPanel.blur(small, 4);
             small.recycle();
-            blurCacheId = w;
+            blurCacheId = key;
             return blurCache;
         } catch (Throwable t) {
             return null;
@@ -1294,6 +1570,7 @@ public class MainActivity extends Activity {
     }
 
     private Drawable wallpaperDrawable(int w) {
+        if (w == WP_SLIDESHOW) return slideDrawable(store.slideIndex());
         if (w >= WP_ART && w < WP_ART + ArtWallpaper.NAMES.length) return new ArtWallpaper(w - WP_ART);
         if (w == WP_PICTURE) {
             File f = wallpaperFile();
@@ -1706,7 +1983,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("Lumen 1.3")
+        new AlertDialog.Builder(this).setTitle("Lumen 1.4")
                 .setMessage("A simple, ad-free home screen.\nDeveloped by Ponkoj Shill.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")

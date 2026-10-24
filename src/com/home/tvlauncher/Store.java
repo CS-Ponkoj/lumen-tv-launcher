@@ -103,6 +103,10 @@ final class Store {
     static final int FOCUS_GLASS = 0, FOCUS_MINIMAL = 1;
     int focusStyle() { return p.getInt("focus_style", FOCUS_GLASS); }
     void setFocusStyle(int f) { p.edit().putInt("focus_style", f).apply(); }
+    int slideMinutes() { return p.getInt("slide_minutes", 15); }
+    void setSlideMinutes(int m) { p.edit().putInt("slide_minutes", m).apply(); }
+    int slideIndex() { return p.getInt("slide_index", 0); }
+    void setSlideIndex(int i) { p.edit().putInt("slide_index", i).apply(); }
     boolean sounds() { return p.getBoolean("sounds", true); }
     void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
     int border() { return p.getInt("border", 1); }

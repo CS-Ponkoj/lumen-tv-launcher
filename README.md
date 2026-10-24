@@ -12,7 +12,22 @@ No ads, no recommendations, no INTERNET permission.
 - Glass-style wallpapers or your own picture
 - Optional accessibility service that makes the remote's Home button open My Home
 
-## Build (no Gradle)
+## Install on your TV
+1. Download `myhome.apk` from the [latest release](../../releases/latest).
+2. Get it onto the TV, either:
+   - **From a PC with ADB:** enable *Developer options* and *USB debugging* on the TV, then
+     `adb connect <tv-ip>` and `adb install myhome.apk`, or
+   - **On the TV:** install the *Downloader* app from the Play Store, allow it to install unknown apps,
+     and open the release link.
+3. Open **My Home** from your apps.
+4. To make the remote's Home button open it: Settings → System → Accessibility →
+   turn on **My Home - Home button** (or use ⋯ → Home button setup inside the app).
+
+To undo: turn that service off, or uninstall the app.
+
+Tested on a TCL Google TV (Android 11). Should work on Android TV / Google TV 9+.
+
+## Build from source (no Gradle)
 Needs JDK 17 and Android SDK `build-tools;34.0.0` + `platforms;android-30`.
 
 ```sh
@@ -21,3 +36,6 @@ adb install -r build/myhome.apk
 ```
 
 Then on the TV: Settings → System → Accessibility → turn on **My Home - Home button**.
+
+## License
+MIT — see [LICENSE](LICENSE).

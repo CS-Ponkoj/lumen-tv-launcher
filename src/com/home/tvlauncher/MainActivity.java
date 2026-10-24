@@ -621,7 +621,7 @@ public class MainActivity extends Activity {
         sv.addView(list);
 
         TextView title = new TextView(this);
-        title.setText("My Home");
+        title.setText("Lumen");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -658,7 +658,7 @@ public class MainActivity extends Activity {
                         new PanelItem(android.R.drawable.ic_menu_slideshow, "Screensaver", this::screensaverDialog),
                         new PanelItem(android.R.drawable.ic_menu_revert, "Home button setup", this::homeSetupDialog),
                         new PanelItem(android.R.drawable.ic_menu_mapmode, "Open Google TV home", this::openGoogleHome),
-                        new PanelItem(android.R.drawable.ic_menu_info_details, "About My Home", this::aboutDialog)}}};
+                        new PanelItem(android.R.drawable.ic_menu_info_details, "About Lumen", this::aboutDialog)}}};
 
         for (Object[] sec : sections) {
             TextView h = new TextView(this);
@@ -1156,7 +1156,7 @@ public class MainActivity extends Activity {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
             store.setSleepAt(at);
             if (HomeButtonService.instance == null) {
-                toast("Turn on the My Home service (⋯ → Home button setup) so the timer can turn the TV off");
+                toast("Turn on the Lumen service (⋯ → Home button setup) so the timer can turn the TV off");
             } else {
                 toast("TV will sleep in " + minutes + " minutes");
             }
@@ -1625,7 +1625,7 @@ public class MainActivity extends Activity {
         if (!hasUsageAccess()) {
             new AlertDialog.Builder(this).setTitle("Data usage")
                     .setMessage("To show how much internet the TV used today, turn on \"Usage access\" for "
-                            + "My Home.\n\nThis only reads the TV's own counters. My Home still has no internet "
+                            + "Lumen.\n\nThis only reads the TV's own counters. Lumen still has no internet "
                             + "access.")
                     .setPositiveButton("Open Usage access settings", (d, w) -> {
                         Intent i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
@@ -1663,10 +1663,10 @@ public class MainActivity extends Activity {
         boolean on = HomeButtonService.instance != null;
         new AlertDialog.Builder(this).setTitle("Home button")
                 .setMessage(on
-                        ? "The Home button is set to open My Home. To go back to Google's home screen, "
-                          + "turn off \"My Home - Home button\" in Accessibility settings."
-                        : "To make the remote's Home button open My Home, turn on "
-                          + "\"My Home - Home button\" in Accessibility settings.\n\n"
+                        ? "The Home button is set to open Lumen. To go back to Google's home screen, "
+                          + "turn off \"Lumen - Home button\" in Accessibility settings."
+                        : "To make the remote's Home button open Lumen, turn on "
+                          + "\"Lumen - Home button\" in Accessibility settings.\n\n"
                           + "It only watches for the Home key and which app is open (for the Recent row). "
                           + "It can't read the screen and has no internet access.")
                 .setPositiveButton("Open Accessibility settings",
@@ -1688,7 +1688,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("My Home 1.3")
+        new AlertDialog.Builder(this).setTitle("Lumen 1.3")
                 .setMessage("A simple, ad-free home screen.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -1757,9 +1757,9 @@ public class MainActivity extends Activity {
 
     private void screensaverDialog() {
         new AlertDialog.Builder(this).setTitle("Screensaver")
-                .setMessage("My Home includes an OLED-safe clock screensaver: a dim clock on black "
+                .setMessage("Lumen includes an OLED-safe clock screensaver: a dim clock on black "
                         + "that moves every 30 seconds to prevent burn-in.\n\n"
-                        + "To use it, choose \"My Home clock\" in the screensaver settings.")
+                        + "To use it, choose \"Lumen clock\" in the screensaver settings.")
                 .setPositiveButton("Open screensaver settings", (d, w) -> {
                     Intent i = new Intent(Settings.ACTION_DREAM_SETTINGS);
                     if (pm.resolveActivity(i, 0) == null) i = new Intent(Settings.ACTION_DISPLAY_SETTINGS);
@@ -1870,7 +1870,7 @@ public class MainActivity extends Activity {
                 w.position = c.getLong(4);
                 w.duration = c.getLong(5);
                 String poster = c.getString(3);
-                // Only local posters: My Home has no internet permission.
+                // Only local posters: Lumen has no internet permission.
                 if (poster != null && (poster.startsWith("content:") || poster.startsWith("android.resource:"))) {
                     try (java.io.InputStream in = getContentResolver().openInputStream(Uri.parse(poster))) {
                         Bitmap bm = BitmapFactory.decodeStream(in);

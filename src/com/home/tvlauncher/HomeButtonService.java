@@ -11,7 +11,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Catches the remote's Home key and opens My Home instead of Google's home screen.
+ * Catches the remote's Home key and opens Lumen instead of Google's home screen.
  * Also notes which app comes to the front, for the "Recent" row.
  * It never reads screen contents (canRetrieveWindowContent=false).
  */

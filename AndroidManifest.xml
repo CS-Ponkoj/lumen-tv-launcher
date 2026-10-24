@@ -29,7 +29,7 @@
     </queries>
 
     <application
-        android:label="My Home"
+        android:label="Lumen"
         android:icon="@drawable/icon"
         android:banner="@drawable/banner"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
@@ -59,7 +59,7 @@
 
         <service
             android:name=".HomeButtonService"
-            android:label="My Home - Home button"
+            android:label="Lumen - Home button"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
@@ -74,7 +74,7 @@
 
         <service
             android:name=".ClockDream"
-            android:label="My Home clock"
+            android:label="Lumen clock"
             android:permission="android.permission.BIND_DREAM_SERVICE"
             android:exported="true">
             <intent-filter>

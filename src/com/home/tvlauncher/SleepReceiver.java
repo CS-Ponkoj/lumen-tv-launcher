@@ -12,7 +12,7 @@ public class SleepReceiver extends BroadcastReceiver {
         new Store(c).setSleepAt(0);
         HomeButtonService s = HomeButtonService.instance;
         if (s == null || !s.sleepNow()) {
-            Toast.makeText(c, "Sleep timer needs the My Home Home-button service turned on",
+            Toast.makeText(c, "Sleep timer needs the Lumen Home-button service turned on",
                     Toast.LENGTH_LONG).show();
         }
     }

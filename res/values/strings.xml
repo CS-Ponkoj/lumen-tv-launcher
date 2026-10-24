@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_desc">Makes the Home button on your remote open My Home. It only watches for the Home key and which app is open (for the Recent row). It cannot read screen contents and has no internet access.</string>
+</resources>

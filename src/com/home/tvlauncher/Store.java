@@ -89,7 +89,7 @@ final class Store {
     // ---- wallpaper schedule, clock, data usage, focus border ----
     boolean dayNight() { return p.getBoolean("day_night", false); }
     void setDayNight(boolean b) { p.edit().putBoolean("day_night", b).apply(); }
-    int nightWallpaper() { return p.getInt("night_wallpaper", 5); }
+    int nightWallpaper() { return p.getInt("night_wallpaper", 11); }
     void setNightWallpaper(int w) { p.edit().putInt("night_wallpaper", w).apply(); }
     int timeFormat() { return p.getInt("time_format", 0); }
     void setTimeFormat(int f) { p.edit().putInt("time_format", f).apply(); }
@@ -97,6 +97,12 @@ final class Store {
     void setDateFormat(int f) { p.edit().putInt("date_format", f).apply(); }
     boolean showDataUsage() { return p.getBoolean("show_data", true); }
     void setShowDataUsage(boolean b) { p.edit().putBoolean("show_data", b).apply(); }
+    static final int LAYOUT_SHOWCASE = 0, LAYOUT_CLASSIC = 1;
+    int layout() { return p.getInt("layout", LAYOUT_SHOWCASE); }
+    void setLayout(int l) { p.edit().putInt("layout", l).apply(); }
+    static final int FOCUS_GLASS = 0, FOCUS_MINIMAL = 1;
+    int focusStyle() { return p.getInt("focus_style", FOCUS_GLASS); }
+    void setFocusStyle(int f) { p.edit().putInt("focus_style", f).apply(); }
     boolean sounds() { return p.getBoolean("sounds", true); }
     void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
     int border() { return p.getInt("border", 1); }
@@ -112,7 +118,7 @@ final class Store {
     void setContinueWatching(boolean b) { p.edit().putBoolean("continue_watching", b).apply(); }
 
     // ---- misc ----
-    int wallpaper() { return p.getInt("wallpaper", 0); }
+    int wallpaper() { return p.getInt("wallpaper", 8); }
     void setWallpaper(int i) { p.edit().putInt("wallpaper", i).apply(); }
 
     long sleepAt() { return p.getLong("sleep_at", 0); }

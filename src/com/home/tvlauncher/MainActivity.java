@@ -73,7 +73,9 @@ public class MainActivity extends Activity {
 
     private static final String[] WALLPAPER_NAMES = {
             "Midnight", "Deep blue", "Charcoal", "Forest", "Plum", "Black",
-            "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)"};
+            "My picture (wallpaper.jpg)", "My video (wallpaper.mp4)",
+            "Aurora (art)", "Sunset hills (art)", "Misty mountains (art)", "Moonlit sea (art)"};
+    private static final int WP_ART = 8;
     private static final int WP_PICTURE = 6, WP_VIDEO = 7;
 
     private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
@@ -106,6 +108,9 @@ public class MainActivity extends Activity {
     private LinearLayout content;
     private ScrollView scroll;
     private View barWrap;
+    private GlassPanel dock;
+    private Bitmap blurCache;
+    private int blurCacheId = -1;
     private View barFocus;
     private boolean barShown = true;
     private TextView dataView;
@@ -209,13 +214,16 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Home pressed while already here: jump back to the top.
+        closePanel(false);
         closeSearch();
+        if (scroll != null) scroll.smoothScrollTo(0, 0);
         View first = firstFocusTarget;
         if (first != null) first.requestFocus();
     }
 
     @Override
     public void onBackPressed() {
+        if (panel != null) { closePanel(true); return; }
         // A home screen has nowhere to go back to. Back only closes search.
         if (searchBox != null && searchBox.getVisibility() == View.VISIBLE) closeSearch();
     }
@@ -227,10 +235,13 @@ public class MainActivity extends Activity {
     private void rebuild() {
         loadApps();
         initDefaultFavorites();
+        panel = null;
         root.removeAllViews();
         tileIndex.clear();
         videoView = null;
+        dock = null;
         applyWallpaper();
+        boolean showcase = store.layout() == Store.LAYOUT_SHOWCASE;
 
         scroll = new ScrollView(this) {
             // We scroll ourselves (smoothly, keeping the focused row in view), so stop the default jump.
@@ -241,8 +252,9 @@ public class MainActivity extends Activity {
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setClipChildren(false);
-        // Leave room at the top for the floating status bar.
-        content.setPadding(dp(40), dp(118), dp(40), dp(24));
+        content.setClipToPadding(false);
+        // Classic: leave room at the top for the floating status bar.
+        content.setPadding(dp(40), showcase ? 0 : dp(118), dp(40), dp(24));
         scroll.addView(content);
         root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
@@ -252,35 +264,47 @@ public class MainActivity extends Activity {
         LinearLayout bw = new LinearLayout(this);
         bw.setPadding(dp(40), dp(24), dp(40), dp(16));
         bw.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x66000000, 0x00000000}));
-        bw.addView(buildTopBar(), new LinearLayout.LayoutParams(-1, -2));
+                new int[]{showcase ? 0x40000000 : 0x66000000, 0x00000000}));
+        bw.addView(showcase ? buildMinimalBar() : buildTopBar(), new LinearLayout.LayoutParams(-1, -2));
         barWrap = bw;
         barShown = true;
         root.addView(bw, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
-        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> setBarShown(y < dp(40)));
-
-        searchBox = new EditText(this);
-        searchBox.setHint("Type to search apps…");
-        searchBox.setSingleLine(true);
-        searchBox.setTextColor(Color.WHITE);
-        searchBox.setHintTextColor(0x99FFFFFF);
-        searchBox.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        searchBox.setBackground(glassPill(false));
-        searchBox.setPadding(dp(16), dp(10), dp(16), dp(10));
-        searchBox.setVisibility(View.GONE);
-        searchBox.addTextChangedListener(new TextWatcher() {
-            public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
-            public void onTextChanged(CharSequence s, int a, int b, int c) { }
-            public void afterTextChanged(Editable e) { fillAllApps(e.toString()); }
+        scroll.setOnScrollChangeListener((v, x, y, ox, oy) -> {
+            setBarShown(y < dp(40));
+            if (dock != null) dock.invalidate(); // keep the frosted glass lined up with the wallpaper
         });
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
-        slp.topMargin = dp(16);
-        content.addView(searchBox, slp);
 
-        // Favorites
+        // Favorites: a frosted dock low on the screen (Showcase) or a normal row (Classic)
         List<String> favs = new ArrayList<>();
         for (String p : store.favorites()) if (apps.containsKey(p)) favs.add(p);
-        if (!favs.isEmpty()) {
+        if (showcase) {
+            View spacer = new View(this);
+            content.addView(spacer, new LinearLayout.LayoutParams(-1, dp(300)));
+            List<String> dockApps = favs;
+            if (dockApps.isEmpty()) {
+                dockApps = new ArrayList<>(apps.keySet());
+                if (dockApps.size() > 6) dockApps = dockApps.subList(0, 6);
+            }
+            GlassPanel d = new GlassPanel(this, blurredWallpaper(), dp(28));
+            d.setClipChildren(false);
+            d.setClipToPadding(false);
+            d.setPadding(dp(14), dp(2), dp(14), dp(0));
+            d.addView(tileRow(dockApps, favs.isEmpty() ? null : "fav", true));
+            content.addView(d, new LinearLayout.LayoutParams(-1, -2));
+            dock = d;
+            final ScrollView sc = scroll;
+            sc.post(() -> {
+                int h = sc.getHeight() - d.getHeight() - dp(30);
+                spacer.getLayoutParams().height = Math.max(dp(140), h);
+                spacer.requestLayout();
+                // Re-assert focus once the dock has moved into place.
+                View f = getCurrentFocus();
+                if (moveSection == null && pendingFocusKey == null && (f == null || f == sc || !f.isShown())
+                        && firstFocusTarget != null) {
+                    sc.post(() -> firstFocusTarget.requestFocus());
+                }
+            });
+        } else if (!favs.isEmpty()) {
             content.addView(sectionTitle("★  Favorites"));
             content.addView(tileRow(favs, "fav", true));
         }
@@ -328,10 +352,10 @@ public class MainActivity extends Activity {
             HorizontalScrollView hs = new HorizontalScrollView(this);
             hs.setHorizontalScrollBarEnabled(false);
             hs.setClipToPadding(false);
-        hs.setClipChildren(false);
+            hs.setClipChildren(false);
             LinearLayout row = new LinearLayout(this);
-        row.setClipChildren(false);
-        row.setClipToPadding(false);
+            row.setClipChildren(false);
+            row.setClipToPadding(false);
             row.setPadding(dp(8), dp(16), dp(8), dp(14));
             for (TvInputInfo info : inputs) {
                 TextView chip = button(inputLabel(info));
@@ -339,9 +363,29 @@ public class MainActivity extends Activity {
                 chip.setOnLongClickListener(v -> { renameInput(info); return true; });
                 row.addView(chip);
             }
+            lockRowEnds(row);
             hs.addView(row);
             content.addView(hs);
         }
+
+        // Search box sits right above All apps, so results show directly under it.
+        searchBox = new EditText(this);
+        searchBox.setHint("Type to search apps…");
+        searchBox.setSingleLine(true);
+        searchBox.setTextColor(Color.WHITE);
+        searchBox.setHintTextColor(0x99FFFFFF);
+        searchBox.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        searchBox.setBackground(glassPill(false));
+        searchBox.setPadding(dp(16), dp(10), dp(16), dp(10));
+        searchBox.setVisibility(View.GONE);
+        searchBox.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            public void afterTextChanged(Editable e) { fillAllApps(e.toString()); }
+        });
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
+        slp.topMargin = dp(24);
+        content.addView(searchBox, slp);
 
         // All apps
         allTitle = sectionTitle("All apps");
@@ -370,6 +414,103 @@ public class MainActivity extends Activity {
                 sc.scrollTo(0, 0);
             }
         });
+    }
+
+    /** Showcase status bar: a few icons on the left, a calm clock on the right. */
+    private View buildMinimalBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+
+        View menu = iconButton(android.R.drawable.ic_menu_preferences, "Menu");
+        menu.setOnClickListener(v -> openPanel());
+        bar.addView(menu);
+        barFocus = menu;
+
+        View search = iconButton(android.R.drawable.ic_menu_search, "Search");
+        search.setOnClickListener(v -> openSearch());
+        bar.addView(search);
+
+        wifiView = new TextView(this);
+        wifiView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        wifiView.setGravity(Gravity.CENTER);
+        wifiView.setMinWidth(dp(52));
+        wifiView.setPadding(dp(14), dp(10), dp(14), dp(10));
+        wifiView.setFocusable(true);
+        wifiView.setClickable(true);
+        wifiView.setOnFocusChangeListener((v, has) -> {
+            v.setBackground(has ? glassPill(true) : null);
+            if (has) wifiView.setTextColor(0xFF0D1B2A); else updateWifi();
+        });
+        wifiView.setOnClickListener(v -> networkDialog());
+        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(-2, -2);
+        wlp.leftMargin = dp(6);
+        bar.addView(wifiView, wlp);
+
+        bar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+
+        sleepButton = new TextView(this);
+        sleepButton.setTextColor(0xCCFFFFFF);
+        sleepButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        sleepButton.setPadding(dp(12), dp(4), dp(12), dp(4));
+        sleepButton.setBackground(glassPill(false));
+        sleepButton.setVisibility(View.GONE);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
+        slp.rightMargin = dp(16);
+        bar.addView(sleepButton, slp);
+
+        dataView = new TextView(this);
+        dataView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        dataView.setTextColor(0xB3FFFFFF);
+        dataView.setVisibility(View.GONE);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
+        dlp.rightMargin = dp(20);
+        bar.addView(dataView, dlp);
+
+        LinearLayout clockBox = new LinearLayout(this);
+        clockBox.setOrientation(LinearLayout.VERTICAL);
+        clockBox.setGravity(Gravity.END);
+        TextClock time = new TextClock(this);
+        String tf = TIME_FORMATS[clamp(store.timeFormat(), TIME_FORMATS.length)];
+        time.setFormat12Hour(tf);
+        time.setFormat24Hour(tf);
+        time.setTextColor(Color.WHITE);
+        time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        time.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        time.setShadowLayer(dp(6), 0, dp(1), 0x80000000);
+        clockBox.addView(time);
+        TextClock date = new TextClock(this);
+        String df = DATE_FORMATS[clamp(store.dateFormat(), DATE_FORMATS.length)];
+        date.setFormat12Hour(df);
+        date.setFormat24Hour(df);
+        date.setTextColor(0xCCFFFFFF);
+        date.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        date.setShadowLayer(dp(4), 0, dp(1), 0x80000000);
+        clockBox.addView(date);
+        bar.addView(clockBox);
+        return bar;
+    }
+
+    private View iconButton(int iconRes, String description) {
+        FrameLayout f = new FrameLayout(this);
+        f.setFocusable(true);
+        f.setClickable(true);
+        f.setContentDescription(description);
+        ImageView img = new ImageView(this);
+        img.setImageResource(iconRes);
+        img.setColorFilter(Color.WHITE);
+        f.addView(img, new FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER));
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        f.setOnFocusChangeListener((v, has) -> {
+            circle.setColor(has ? 0xFFFFFFFF : 0);
+            v.setBackground(has ? circle : null);
+            img.setColorFilter(has ? 0xFF0D1B2A : Color.WHITE);
+            v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).setDuration(150).start();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(52), dp(52));
+        lp.rightMargin = dp(6);
+        f.setLayoutParams(lp);
+        return f;
     }
 
     private View buildTopBar() {
@@ -419,6 +560,8 @@ public class MainActivity extends Activity {
         bar.addView(clockBox, new LinearLayout.LayoutParams(0, -2, 1f));
 
         TextView search = button("Search");
+        search.setOnClickListener(v -> openSearch());
+        bar.addView(search);
         barFocus = search;
         // Left from Search goes to the Wi-Fi button (not down into the apps), and back.
         search.setId(View.generateViewId());
@@ -427,8 +570,6 @@ public class MainActivity extends Activity {
         wifiView.setNextFocusRightId(search.getId());
         wifiView.setNextFocusLeftId(wifiView.getId());
         wifiView.setNextFocusUpId(wifiView.getId());
-        search.setOnClickListener(v -> openSearch());
-        bar.addView(search);
 
         sleepButton = button("Sleep");
         sleepButton.setOnClickListener(v -> sleepDialog());
@@ -447,9 +588,197 @@ public class MainActivity extends Activity {
         bar.addView(hdmi);
 
         TextView more = button("⋯");
-        more.setOnClickListener(v -> moreMenu());
+        more.setOnClickListener(v -> openPanel());
         bar.addView(more);
         return bar;
+    }
+
+    // ---- side panel (replaces the old pop-up menu)
+
+    private View panel;
+
+    private static final class PanelItem {
+        final int icon; final String label; final Runnable action;
+        PanelItem(int icon, String label, Runnable action) { this.icon = icon; this.label = label; this.action = action; }
+    }
+
+    private void openPanel() {
+        if (panel != null) return;
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0x99000000);
+        overlay.setClickable(true);
+
+        ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xF2181B22);
+        float r = dp(28);
+        bg.setCornerRadii(new float[]{0, 0, r, r, r, r, 0, 0});
+        sv.setBackground(bg);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(18), dp(28), dp(18), dp(28));
+        sv.addView(list);
+
+        TextView title = new TextView(this);
+        title.setText("My Home");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setPadding(dp(14), 0, 0, dp(8));
+        list.addView(title);
+
+        View firstRow = null;
+        Object[][] sections = {
+                {"Quick", new PanelItem[]{
+                        new PanelItem(android.R.drawable.ic_menu_search, "Search apps", this::openSearch),
+                        new PanelItem(android.R.drawable.ic_lock_idle_alarm, sleepLabel(), this::sleepDialog),
+                        new PanelItem(android.R.drawable.ic_media_play, "Play Store", () -> launch("com.android.vending")),
+                        new PanelItem(android.R.drawable.ic_menu_slideshow, "HDMI inputs", this::inputsDialog),
+                        new PanelItem(android.R.drawable.ic_menu_manage, "TV settings",
+                                () -> safeStart(new Intent(Settings.ACTION_SETTINGS)))}},
+                {"Look", new PanelItem[]{
+                        new PanelItem(android.R.drawable.ic_menu_view, "Layout: " + (store.layout() == Store.LAYOUT_SHOWCASE ? "Showcase" : "Classic"), this::layoutDialog),
+                        new PanelItem(android.R.drawable.ic_menu_gallery, "Wallpaper", this::wallpaperDialog),
+                        new PanelItem(android.R.drawable.ic_menu_crop, "Card style", this::styleDialog),
+                        new PanelItem(android.R.drawable.ic_menu_edit, "Accent colour", this::accentDialog),
+                        new PanelItem(android.R.drawable.ic_menu_zoom, "Focus style", this::focusStyleDialog),
+                        new PanelItem(android.R.drawable.ic_menu_recent_history, "Clock & date format", this::clockFormatDialog)}},
+                {"Home screen", new PanelItem[]{
+                        new PanelItem(android.R.drawable.ic_menu_sort_by_size, "Categories", this::categoriesDialog),
+                        new PanelItem(android.R.drawable.ic_menu_close_clear_cancel, "Hidden apps", this::hiddenDialog),
+                        new PanelItem(android.R.drawable.ic_menu_edit, "Rename inputs", this::renameInputsDialog),
+                        new PanelItem(android.R.drawable.ic_menu_upload, "Data usage", this::dataUsageDialog),
+                        new PanelItem(android.R.drawable.ic_lock_silent_mode_off,
+                                "Navigation sounds: " + (store.sounds() ? "On" : "Off"), () -> {
+                                    store.setSounds(!store.sounds());
+                                    toast("Navigation sounds " + (store.sounds() ? "on" : "off"));
+                                })}},
+                {"System", new PanelItem[]{
+                        new PanelItem(android.R.drawable.ic_menu_slideshow, "Screensaver", this::screensaverDialog),
+                        new PanelItem(android.R.drawable.ic_menu_revert, "Home button setup", this::homeSetupDialog),
+                        new PanelItem(android.R.drawable.ic_menu_mapmode, "Open Google TV home", this::openGoogleHome),
+                        new PanelItem(android.R.drawable.ic_menu_info_details, "About My Home", this::aboutDialog)}}};
+
+        for (Object[] sec : sections) {
+            TextView h = new TextView(this);
+            h.setText(((String) sec[0]).toUpperCase(Locale.ROOT));
+            h.setTextColor(0x80FFFFFF);
+            h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            h.setLetterSpacing(0.12f);
+            h.setPadding(dp(14), dp(18), 0, dp(6));
+            list.addView(h);
+            for (PanelItem it : (PanelItem[]) sec[1]) {
+                View row = panelRow(it);
+                if (firstRow == null) firstRow = row;
+                list.addView(row);
+            }
+        }
+
+        overlay.addView(sv, new FrameLayout.LayoutParams(dp(360), -1, Gravity.START));
+        root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        panel = overlay;
+        scroll.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        if (barWrap instanceof ViewGroup) ((ViewGroup) barWrap).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        sv.setTranslationX(-dp(360));
+        sv.animate().translationX(0).setDuration(220).start();
+        overlay.setAlpha(0f);
+        overlay.animate().alpha(1f).setDuration(220).start();
+        if (firstRow != null) firstRow.requestFocus();
+    }
+
+    private View panelRow(PanelItem it) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setFocusable(true);
+        row.setClickable(true);
+        row.setPadding(dp(14), dp(11), dp(14), dp(11));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(it.icon);
+        icon.setColorFilter(0xE6FFFFFF);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView label = new TextView(this);
+        label.setText(it.label);
+        label.setTextColor(0xE6FFFFFF);
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, -2, 1f);
+        llp.leftMargin = dp(18);
+        row.addView(label, llp);
+        row.setOnFocusChangeListener((v, has) -> {
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(dp(14));
+            g.setColor(has ? 0x1FFFFFFF : 0);
+            if (has) g.setStroke(dp(2), Color.WHITE);
+            v.setBackground(g);
+            label.setTextColor(has ? Color.WHITE : 0xE6FFFFFF);
+        });
+        row.setOnClickListener(v -> {
+            closePanel(false);
+            it.action.run();
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(2);
+        row.setLayoutParams(lp);
+        return row;
+    }
+
+    private void closePanel(boolean restoreFocus) {
+        if (panel == null) return;
+        View p = panel;
+        panel = null;
+        root.removeView(p);
+        scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        if (barWrap instanceof ViewGroup) ((ViewGroup) barWrap).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        if (restoreFocus && barFocus != null) barFocus.requestFocus();
+    }
+
+    private String sleepLabel() {
+        long left = store.sleepAt() - System.currentTimeMillis();
+        return store.sleepAt() == 0 || left <= 0 ? "Sleep timer" : "Sleep timer · " + Math.max(1, (left + 59_999) / 60_000) + " min left";
+    }
+
+    private void layoutDialog() {
+        String[] names = {"Showcase (wallpaper + glass dock)", "Classic (rows)"};
+        new AlertDialog.Builder(this).setTitle("Layout")
+                .setSingleChoiceItems(names, store.layout(), (d, w) -> {
+                    store.setLayout(w); d.dismiss(); rebuild();
+                }).show();
+    }
+
+    private void focusStyleDialog() {
+        String[] names = {"Glass glow (lift and glow)", "Minimal (clean white border)",
+                "Border thickness: " + BORDER_NAMES[clamp(store.border(), BORDER_NAMES.length)]};
+        new AlertDialog.Builder(this).setTitle("Focus style")
+                .setItems(names, (d, w) -> {
+                    if (w == 2) { borderDialog(); return; }
+                    store.setFocusStyle(w);
+                    rebuild();
+                }).show();
+    }
+
+    /** Downscaled, blurred copy of the wallpaper for the glass dock (cached per wallpaper). */
+    private Bitmap blurredWallpaper() {
+        int w = effectiveWallpaper();
+        if (w == WP_VIDEO && videoFile().exists()) return null; // video: plain tinted glass
+        if (blurCache != null && blurCacheId == w) return blurCache;
+        try {
+            int sw = getResources().getDisplayMetrics().widthPixels;
+            int sh = getResources().getDisplayMetrics().heightPixels;
+            Bitmap full = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
+            Drawable d = wallpaperDrawable(w);
+            d.setBounds(0, 0, sw, sh);
+            d.draw(new android.graphics.Canvas(full));
+            Bitmap small = Bitmap.createScaledBitmap(full, Math.max(1, sw / 10), Math.max(1, sh / 10), true);
+            full.recycle();
+            blurCache = GlassPanel.blur(small, 4);
+            small.recycle();
+            blurCacheId = w;
+            return blurCache;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private TextView sectionTitle(String s) {
@@ -581,9 +910,11 @@ public class MainActivity extends Activity {
 
         t.setOnFocusChangeListener((v, has) -> {
             if (has) glideTo(v);
-            card.setBackground(has ? glass(true, radius) : null);
-            card.setElevation(has ? dp(12) : 0);
-            card.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).alpha(has ? 1f : 0.85f)
+            boolean minimal = store.focusStyle() == Store.FOCUS_MINIMAL;
+            card.setBackground(has ? (minimal ? minimalFrame(radius) : glass(true, radius)) : null);
+            card.setElevation(has && !minimal ? dp(12) : 0);
+            float grow = minimal ? 1.04f : 1.1f;
+            card.animate().scaleX(has ? grow : 1f).scaleY(has ? grow : 1f).alpha(has ? 1f : 0.85f)
                     .setInterpolator(new android.view.animation.OvershootInterpolator(1.4f))
                     .setDuration(220).start();
             label.animate().translationY(has ? dp(4) : 0).alpha(premium && !has ? 0f : 1f)
@@ -727,6 +1058,7 @@ public class MainActivity extends Activity {
     private void openSearch() {
         searchBox.setVisibility(View.VISIBLE);
         searchBox.requestFocus();
+        scroll.post(() -> glideTo(searchBox));
         InputMethodManager imm = getSystemService(InputMethodManager.class);
         handler.postDelayed(() -> imm.showSoftInput(searchBox, InputMethodManager.SHOW_IMPLICIT), 100);
     }
@@ -836,6 +1168,12 @@ public class MainActivity extends Activity {
         if (sleepButton == null) return;
         long at = store.sleepAt();
         long left = at - System.currentTimeMillis();
+        if (store.layout() == Store.LAYOUT_SHOWCASE) {
+            boolean on = at != 0 && left > 0;
+            sleepButton.setVisibility(on ? View.VISIBLE : View.GONE);
+            if (on) sleepButton.setText("☾  Sleep in " + Math.max(1, (left + 59_999) / 60_000) + " min");
+            return;
+        }
         if (at == 0 || left <= 0) sleepButton.setText("Sleep");
         else sleepButton.setText("Sleep · " + Math.max(1, (left + 59_999) / 60_000) + "m");
     }
@@ -854,7 +1192,8 @@ public class MainActivity extends Activity {
             boolean wifi = c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
             boolean eth = c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET);
             boolean ok = c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
-            String kind = wifi ? "Wi-Fi " + signalBars() : eth ? "Ethernet" : "Network";
+            boolean compact = store.layout() == Store.LAYOUT_SHOWCASE;
+            String kind = wifi ? (compact ? signalBars() : "Wi-Fi " + signalBars()) : eth ? "Ethernet" : "Network";
             wifiView.setText("●  " + kind + (ok ? "" : " (no internet)"));
             wifiView.setTextColor(wifiView.isFocused() ? 0xFF0D1B2A : ok ? 0xFF66BB6A : 0xFFFFCA28);
         }
@@ -863,28 +1202,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ ⋯ menu
 
     private void moreMenu() {
-        String[] opts = {"Wallpaper", "Card style", "Accent colour", "Focus border",
-                "Clock & date format", "Categories", "Data usage",
-                "Navigation sounds: " + (store.sounds() ? "On" : "Off"), "Screensaver", "Hidden apps",
-                "Rename inputs", "Home button setup", "Open Google TV home", "About My Home"};
-        new AlertDialog.Builder(this).setItems(opts, (d, w) -> {
-            switch (w) {
-                case 0: wallpaperDialog(); break;
-                case 1: styleDialog(); break;
-                case 2: accentDialog(); break;
-                case 3: borderDialog(); break;
-                case 4: clockFormatDialog(); break;
-                case 5: categoriesDialog(); break;
-                case 6: dataUsageDialog(); break;
-                case 7: store.setSounds(!store.sounds()); toast("Navigation sounds " + (store.sounds() ? "on" : "off")); break;
-                case 8: screensaverDialog(); break;
-                case 9: hiddenDialog(); break;
-                case 10: renameInputsDialog(); break;
-                case 11: homeSetupDialog(); break;
-                case 12: openGoogleHome(); break;
-                case 13: aboutDialog(); break;
-            }
-        }).show();
+        openPanel();
     }
 
     // ---- wallpaper (with video and day/night schedule)
@@ -958,6 +1276,7 @@ public class MainActivity extends Activity {
     }
 
     private Drawable wallpaperDrawable(int w) {
+        if (w >= WP_ART && w < WP_ART + ArtWallpaper.NAMES.length) return new ArtWallpaper(w - WP_ART);
         if (w == WP_PICTURE) {
             File f = wallpaperFile();
             if (f.exists()) {
@@ -1006,6 +1325,7 @@ public class MainActivity extends Activity {
     /** Glides the page so the focused row sits comfortably below the status bar. */
     private void glideTo(View v) {
         if (scroll == null || content == null || moveSection != null && pendingFocusKey != null) return;
+        if (dock != null && isInside(v, dock)) { scroll.smoothScrollTo(0, 0); return; }
         android.graphics.Rect r = new android.graphics.Rect();
         v.getDrawingRect(r);
         try {
@@ -1137,7 +1457,12 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) navSound(e.getKeyCode());
+        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU) {
+            if (e.getAction() == KeyEvent.ACTION_UP) { if (panel == null) openPanel(); else closePanel(true); }
+            return true;
+        }
         if (moveSection == null) {
+            if (panel != null) return super.dispatchKeyEvent(e);
             // Up from the top row: bring back the (possibly hidden) status bar.
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
                     && barWrap != null && barFocus != null) {
@@ -1363,7 +1688,7 @@ public class MainActivity extends Activity {
     }
 
     private void aboutDialog() {
-        new AlertDialog.Builder(this).setTitle("My Home 1.2")
+        new AlertDialog.Builder(this).setTitle("My Home 1.3")
                 .setMessage("A simple, ad-free home screen.\n\nNo internet permission, no tracking.\n\n"
                         + "Long-press OK on any app to pin, move, rename or hide it.\n"
                         + "Long-press an input to rename it.")
@@ -1666,6 +1991,24 @@ public class MainActivity extends Activity {
         ld.setLayerInset(2, glowPad, glowPad, glowPad, glowPad + dp(40));
         int in = glowPad + dp(bw);
         ld.setLayerInset(3, in, in, in, in);
+        return ld;
+    }
+
+    /** Arc-style focus: a clean white border hugging the artwork, with a thin dark inner ring. */
+    private Drawable minimalFrame(int radiusDp) {
+        int bw = BORDER_DP[clamp(store.border(), BORDER_DP.length)];
+        GradientDrawable outer = new GradientDrawable();
+        outer.setCornerRadius(dp(radiusDp));
+        outer.setColor(0);
+        outer.setStroke(dp(bw), Color.WHITE);
+        GradientDrawable inner = new GradientDrawable();
+        inner.setCornerRadius(Math.max(0, dp(radiusDp) - dp(bw)));
+        inner.setColor(0);
+        inner.setStroke(dp(1), 0x80000000);
+        LayerDrawable ld = new LayerDrawable(new Drawable[]{outer, inner});
+        int in = dp(9) - dp(bw) - dp(1);
+        ld.setLayerInset(0, in, in, in, in);
+        ld.setLayerInset(1, in + dp(bw), in + dp(bw), in + dp(bw), in + dp(bw));
         return ld;
     }
 

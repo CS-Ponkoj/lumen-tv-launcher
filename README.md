@@ -1,7 +1,7 @@
 # Lumen: an ad-free, glass-style Google TV launcher
 
 A small (~360 KB) home screen for Android / Google TV with a frosted-glass look.
-No ads, no recommendations, no tracking, and no INTERNET permission.
+No ads, no recommendations, no tracking. Internet is used only for the optional weather and the local photo upload (see below).
 
 ![Lumen on a clear autumn day](docs/home-day.jpg)
 
@@ -22,7 +22,7 @@ Lumen 2 has one look, **Winter Snowfall**: a misty forest with gently falling sn
 - Settings panel: weather city and units, room name, clock format, hidden apps, input names,
   sleep timer, screensaver, navigation sounds
 - Optional accessibility service so the remote's Home button opens Lumen
-- Internet is used **only** for the optional weather (Open-Meteo; only your city is sent)
+- Internet is used **only** for the optional weather and the local photo upload (see Network and privacy)
 
 Looking for the themes, wallpapers and card styles of Lumen 1? They live on the
 [`v1` branch](../../tree/v1).

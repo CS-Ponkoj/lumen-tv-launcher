@@ -354,10 +354,39 @@ public class MainActivity extends Activity {
 
     private void refreshInfo() {
         applyScene();
-        if (greetingView != null) greetingView.setText(greeting());
+        if (greetingView != null) greetingView.setText(greetingLine());
         updateStatusLine();
         showWeather();
         updateDataUsage();
+    }
+
+    /** "Good night · Clear · UV 0 · Humidity 62%" */
+    private String greetingLine() {
+        StringBuilder sb = new StringBuilder(greeting());
+        if (store.weatherOn() && store.weatherTime() > 0) {
+            sb.append(" · ").append(conditionWord());
+            if (store.uv() >= 0) sb.append(" · UV ").append(Math.round(store.uv())).append(' ').append(uvLevel(store.uv()));
+            if (store.humidity() >= 0) sb.append(" · Humidity ").append(store.humidity()).append('%');
+        }
+        return sb.toString();
+    }
+
+    private String conditionWord() {
+        int c = store.weatherCode();
+        boolean night = "night".equals(phaseNow());
+        if (c == 0) return night ? "Clear" : "Sunny";
+        if (c <= 2) return "Partly cloudy";
+        if (c == 3) return "Cloudy";
+        if (c == 45 || c == 48) return "Foggy";
+        if (c >= 51 && c <= 57) return "Drizzling";
+        if (c >= 61 && c <= 67 || c >= 80 && c <= 82) return "Raining";
+        if (c >= 71 && c <= 77 || c == 85 || c == 86) return "Snowing";
+        if (c >= 95) return "Stormy";
+        return "Cloudy";
+    }
+
+    private static String uvLevel(float uv) {
+        return uv < 3 ? "low" : uv < 6 ? "moderate" : uv < 8 ? "high" : uv < 11 ? "very high" : "extreme";
     }
 
     private String greeting() {
@@ -417,6 +446,7 @@ public class MainActivity extends Activity {
 
     private void showWeather() {
         if (weatherRow == null) return;
+        store.uv();
         store.weatherFahrenheit(); // applies the one-time Fahrenheit switch before the cache is read
         if (!store.weatherOn() || store.weatherTime() == 0) {
             weatherRow.setVisibility(View.GONE);
@@ -450,8 +480,9 @@ public class MainActivity extends Activity {
                 String unit = store.weatherFahrenheit() ? "&temperature_unit=fahrenheit" : "";
                 org.json.JSONObject f = new org.json.JSONObject(httpGet("https://api.open-meteo.com/v1/forecast?latitude="
                         + store.weatherLat() + "&longitude=" + store.weatherLon()
-                        + "&current=temperature_2m,weather_code&daily=sunrise,sunset&timezone=auto&forecast_days=1" + unit));
+                        + "&current=temperature_2m,weather_code,uv_index,relative_humidity_2m&daily=sunrise,sunset&timezone=auto&forecast_days=1" + unit));
                 org.json.JSONObject cur = f.getJSONObject("current");
+                store.setExtras((float) cur.optDouble("uv_index", -1), cur.optInt("relative_humidity_2m", -1));
                 try {
                     org.json.JSONObject daily = f.getJSONObject("daily");
                     store.setSun(minutesOf(daily.getJSONArray("sunrise").getString(0)),

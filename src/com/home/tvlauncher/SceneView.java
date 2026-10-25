@@ -7,11 +7,32 @@ import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.view.View;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 /** Animated weather drawn over the wallpaper: snow, rain, storm, fog, drifting clouds or stars. */
 final class SceneView extends View {
-    static final int NONE = 0, SNOW = 1, RAIN = 2, STORM = 3, FOG = 4, CLOUDS = 5, STARS = 6, FIREFLIES = 7;
+    /** Several effects in one view: one redraw per frame instead of one per effect. */
+    static final class Stack extends View {
+        private final List<SceneView> layers = new ArrayList<>();
+        Stack(Context c, List<Integer> modes, android.graphics.Bitmap forest) {
+            super(c);
+            setFocusable(false);
+            for (int m : modes) { SceneView v = new SceneView(c, m); v.setForest(forest); v.embedded = true; layers.add(v); }
+        }
+        @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+            for (SceneView v : layers) v.layout(0, 0, w, h);
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            for (SceneView v : layers) v.onDraw(canvas);
+            if (!layers.isEmpty()) postInvalidateDelayed(33);
+        }
+    }
+
+    boolean embedded;
+    static final int NONE = 0, SNOW = 1, RAIN = 2, STORM = 3, FOG = 4, CLOUDS = 5, STARS = 6, FIREFLIES = 7,
+            SUNBEAMS = 8, MOTES = 9, BIRDS = 10, LEAVES = 11, PETALS = 12, FLURRIES = 13;
 
     private final int mode;
     private final float density;
@@ -26,6 +47,7 @@ final class SceneView extends View {
     private float flash;          // storm lightning brightness, 0..1
     private float nextFlashIn = 4f;
     private Fireflies fireflies;
+    private Ambient ambient;
     private android.graphics.Bitmap forest;
 
     void setForest(android.graphics.Bitmap bg) { forest = bg; if (fireflies != null) fireflies.setForest(bg); }
@@ -36,7 +58,7 @@ final class SceneView extends View {
         density = c.getResources().getDisplayMetrics().density;
         setFocusable(false);
         setClickable(false);
-        count = mode == SNOW ? 150 : mode == RAIN ? 220 : mode == STORM ? 300 : mode == FOG ? 9
+        count = mode == FLURRIES ? 45 : mode == SNOW ? 150 : mode == RAIN ? 130 : mode == STORM ? 170 : mode == FOG ? 9
                 : mode == CLOUDS ? 6 : mode == STARS ? 70 : 0;
         x = new float[count]; y = new float[count]; r = new float[count];
         speed = new float[count]; drift = new float[count]; phase = new float[count];
@@ -49,6 +71,7 @@ final class SceneView extends View {
         phase[i] = random.nextFloat() * 6.28f;
         switch (mode) {
             case SNOW:
+            case FLURRIES:
                 y[i] = anywhere ? random.nextFloat() * h : -10 * density;
                 r[i] = (0.6f + depth * 2.2f) * density;
                 speed[i] = (18 + depth * 55) * density;
@@ -81,12 +104,20 @@ final class SceneView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         int w = getWidth(), h = getHeight();
+        if (mode >= SUNBEAMS && mode <= PETALS && w > 0 && h > 0) {
+            if (ambient == null) { ambient = new Ambient(mode - SUNBEAMS, density); last = System.nanoTime(); }
+            long t = System.nanoTime();
+            ambient.draw(canvas, w, h, Math.min(0.05f, (t - last) / 1e9f));
+            last = t;
+            if (!embedded) postInvalidateDelayed(33);
+            return;
+        }
         if (mode == FIREFLIES && w > 0 && h > 0) {
             if (fireflies == null) { fireflies = new Fireflies(density); fireflies.setForest(forest); last = System.nanoTime(); }
             long t = System.nanoTime();
             fireflies.draw(canvas, w, h, Math.min(0.05f, (t - last) / 1e9f));
             last = t;
-            postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
+            if (!embedded) postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
             return;
         }
         if (w == 0 || h == 0 || count == 0) return;
@@ -101,6 +132,7 @@ final class SceneView extends View {
 
         switch (mode) {
             case SNOW:
+            case FLURRIES:
                 paint.setStyle(Paint.Style.FILL);
                 paint.setShader(null);
                 for (int i = 0; i < count; i++) {
@@ -116,7 +148,8 @@ final class SceneView extends View {
                 paint.setShader(null);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(Math.max(1f, density * 1.1f));
-                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setStrokeCap(Paint.Cap.BUTT);
+                paint.setAntiAlias(false);              // thin streaks don't need it; much cheaper on TV GPUs
                 float slant = 0.18f;
                 for (int i = 0; i < count; i++) {
                     y[i] += speed[i] * dt;
@@ -125,6 +158,7 @@ final class SceneView extends View {
                     paint.setColor((alpha[i] << 24) | 0xDDE6F2);
                     canvas.drawLine(x[i], y[i], x[i] - r[i] * slant, y[i] - r[i], paint);
                 }
+                paint.setAntiAlias(true);
                 if (mode == STORM) {
                     nextFlashIn -= dt;
                     if (nextFlashIn <= 0) { flash = 1f; nextFlashIn = 5 + random.nextFloat() * 9; }
@@ -163,6 +197,6 @@ final class SceneView extends View {
                 }
                 break;
         }
-        postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
+        if (!embedded) postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
     }
 }

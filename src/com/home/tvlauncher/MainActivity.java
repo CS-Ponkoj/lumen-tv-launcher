@@ -88,7 +88,8 @@ public class MainActivity extends Activity {
     private View homePill;
     private String dataToday;
     private ImageView bgView;
-    private SceneView sceneView;
+    private final List<View> sceneViews = new ArrayList<>();
+    private String forcedSeason;
     private String sceneKey;
     private String forcedScene;   // for previews: "night/rain" etc. via an intent extra
     private final Map<String, Bitmap> graded = new HashMap<>();
@@ -123,6 +124,7 @@ public class MainActivity extends Activity {
         root = new FrameLayout(this);
         setContentView(root);
         forcedScene = getIntent().getStringExtra("scene");
+        forcedSeason = getIntent().getStringExtra("season");
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -162,7 +164,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (intent.hasExtra("scene")) { forcedScene = intent.getStringExtra("scene"); applyScene(); return; }
+        if (intent.hasExtra("scene")) { forcedScene = intent.getStringExtra("scene"); forcedSeason = intent.getStringExtra("season"); sceneKey = null; applyScene(); return; }
         // Home pressed while already here: back to the top, first favourite selected.
         closePanel();
         movePkg = null;
@@ -193,7 +195,7 @@ public class MainActivity extends Activity {
         bgView = new ImageView(this);
         bgView.setScaleType(ImageView.ScaleType.CENTER_CROP);
         root.addView(bgView, new FrameLayout.LayoutParams(-1, -1));
-        sceneView = null;
+        sceneViews.clear();
         sceneKey = null;
         applyScene();
         View shade = new View(this);
@@ -1403,6 +1405,50 @@ public class MainActivity extends Activity {
 
     private static final String[] PHASES = {"dawn", "day", "dusk", "night"};
 
+    /** spring, summer, autumn, winter (northern hemisphere), or "holiday" from Dec 20 to Jan 1. */
+    private String season() {
+        if (forcedSeason != null) return forcedSeason;
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        int m = c.get(java.util.Calendar.MONTH), day = c.get(java.util.Calendar.DAY_OF_MONTH);
+        if ((m == java.util.Calendar.DECEMBER && day >= 20) || (m == java.util.Calendar.JANUARY && day == 1)) return "holiday";
+        if (m >= 2 && m <= 4) return "spring";
+        if (m >= 5 && m <= 7) return "summer";
+        if (m >= 8 && m <= 10) return "autumn";
+        return "winter";
+    }
+
+    /** The animation layers for a scene: weather first, then life and season on top. */
+    private List<Integer> layersFor(String phase, String weather, String season) {
+        List<Integer> l = new ArrayList<>();
+        boolean night = phase.equals("night"), day = phase.equals("day");
+        boolean calm = weather.equals("clear") || weather.equals("partly");
+        switch (weather) {
+            case "snow": l.add(SceneView.SNOW); break;
+            case "rain": l.add(SceneView.RAIN); break;
+            case "storm": l.add(SceneView.STORM); break;
+            case "fog": l.add(SceneView.FOG); if (night) l.add(SceneView.FIREFLIES); break;
+            case "partly": case "cloudy": l.add(SceneView.CLOUDS); break;
+        }
+        if (calm) {
+            if (night) {
+                if (!l.contains(SceneView.FIREFLIES) && !season.equals("winter") && !season.equals("holiday")) l.add(SceneView.FIREFLIES);
+            } else {
+                if (day && weather.equals("clear")) l.add(SceneView.SUNBEAMS);
+                l.add(SceneView.MOTES);
+                l.add(SceneView.BIRDS);
+            }
+            if (!night) {
+                if (season.equals("autumn")) l.add(SceneView.LEAVES);
+                if (season.equals("spring")) l.add(SceneView.PETALS);
+                if (season.equals("summer")) l.add(SceneView.MOTES);
+                if (season.equals("winter")) l.add(SceneView.FLURRIES);
+            }
+            if (night && season.equals("winter")) l.add(SceneView.FLURRIES);
+        }
+        if (season.equals("holiday") && night && !weather.equals("snow")) l.add(SceneView.SNOW);
+        return l;
+    }
+
     private static int minutesOf(String isoLocal) {
         // "2026-10-25T07:21"
         int t = isoLocal.indexOf('T');
@@ -1447,20 +1493,11 @@ public class MainActivity extends Activity {
 
         bgView.setImageBitmap(graded(phase, weather));
 
-        int mode;
-        switch (weather) {
-            case "snow": mode = SceneView.SNOW; break;
-            case "rain": mode = SceneView.RAIN; break;
-            case "storm": mode = SceneView.STORM; break;
-            case "fog": mode = SceneView.FOG; break;
-            case "partly":
-            case "cloudy": mode = SceneView.CLOUDS; break;
-            default: mode = phase.equals("night") ? SceneView.FIREFLIES : SceneView.NONE;
-        }
-        if (sceneView != null) root.removeView(sceneView);
-        sceneView = new SceneView(this, mode);
-        sceneView.setForest(graded(phase, weather));
-        root.addView(sceneView, root.indexOfChild(bgView) + 1, new FrameLayout.LayoutParams(-1, -1));
+        for (View v : sceneViews) root.removeView(v);
+        sceneViews.clear();
+        SceneView.Stack stack = new SceneView.Stack(this, layersFor(phase, weather, season()), graded(phase, weather));
+        root.addView(stack, root.indexOfChild(bgView) + 1, new FrameLayout.LayoutParams(-1, -1));
+        sceneViews.add(stack);
     }
 
     /** The misty forest photo (CC0, Jay Mantri via Pexels) re-lit for the time of day and weather. */
@@ -1480,7 +1517,7 @@ public class MainActivity extends Activity {
             case "dawn":  sat = 0.5f; m = new float[]{0.86f, 0.78f, 0.84f, 14, 6, 14}; break;
             case "dusk":  sat = 0.45f; m = new float[]{0.74f, 0.60f, 0.72f, 12, 4, 20}; break;
             case "night": sat = 0.30f; m = new float[]{0.24f, 0.30f, 0.46f, 2, 6, 18}; break;
-            default:      sat = 0.70f; m = new float[]{0.92f, 0.98f, 1.04f, 6, 8, 14}; break;
+            default:      sat = 0.70f; m = new float[]{0.78f, 0.84f, 0.90f, 0, 2, 8}; break;
         }
         switch (weather) {
             case "snow":   // the original Winter Snowfall mauve, darker at night
@@ -1527,6 +1564,10 @@ public class MainActivity extends Activity {
                     out.getWidth() * 0.55f, glow, glow & 0x00FFFFFF, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, out.getWidth(), out.getHeight(), g);
         }
+        // Darker top so the clock and weather read well over bright skies.
+        Paint top = new Paint();
+        top.setShader(new LinearGradient(0, 0, 0, out.getHeight() * 0.45f, 0x66000000, 0x00000000, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, out.getWidth(), out.getHeight() * 0.45f, top);
         // Darker bottom so the apps read well.
         Paint shade = new Paint();
         shade.setShader(new LinearGradient(0, out.getHeight() * 0.55f, 0, out.getHeight(),

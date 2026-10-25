@@ -1,25 +1,23 @@
 # Lumen: an ad-free, glass-style Google TV launcher
 
-A tiny (~60 KB) home screen for Android / Google TV with a frosted-glass look.
+A small (~360 KB) home screen for Android / Google TV with a frosted-glass look.
 No ads, no recommendations, no tracking, and no INTERNET permission.
 
 ## Features
-**Look**
-- Showcase layout: full-screen wallpaper with your favourites in a frosted glass dock (or Classic rows)
-- Built-in art wallpapers (Aurora, Sunset hills, Misty mountains, Moonlit sea), colour gradients,
-  your own picture or a looping video, with an optional day/night switch
-- Card styles (Modern, Premium, Capsule), accent colours, glass-glow or minimal focus border
-- Minimal status bar: clock, Wi-Fi signal, data used today
+Lumen 2 has one look, **Winter Snowfall**: a misty forest with gently falling snow, laid out like Google TV.
 
-**Apps**
-- Favourites, Recent, your own categories (row or grid), All apps with search
-- Long-press OK on an app to move it with the arrow keys, rename it, give it a custom banner or hide it
-- Named HDMI input shortcuts (long-press to rename)
+- **Info panel** (top left): clock and date, optional live weather, a status line
+  (room · Wi-Fi · data used today · sleep timer) and a greeting
+- **Pills** (top right): Inputs, Wi-Fi, Settings
+- **Favourites tray** with the selected app's name in large type, then **Recent** and **All apps**
+- Long-press OK on an app: add to favourites, move, rename, hide, app info
+- Settings panel: weather city and units, room name, clock format, hidden apps, input names,
+  sleep timer, screensaver, navigation sounds
+- Optional accessibility service so the remote's Home button opens Lumen
+- Internet is used **only** for the optional weather (Open-Meteo; only your city is sent)
 
-**Handy**
-- Side settings panel (Menu button or the settings icon)
-- Sleep timer, Wi-Fi details panel, OLED-safe clock screensaver, navigation sounds
-- Optional accessibility service that makes the remote's Home button open Lumen
+Looking for the themes, wallpapers and card styles of Lumen 1? They live on the
+[`v1` branch](../../tree/v1).
 
 ## Install on your TV
 1. Download `lumen.apk` from the [latest release](../../releases/latest).

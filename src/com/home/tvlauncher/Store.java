@@ -7,9 +7,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Small wrapper around SharedPreferences for everything the launcher remembers. */
+/** Everything Lumen remembers. Keys are the same as v1, so settings carry over on update. */
 final class Store {
-    static final int MAX_RECENTS = 6;
+    static final int MAX_RECENTS = 8;
 
     private final SharedPreferences p;
 
@@ -59,68 +59,18 @@ final class Store {
         else p.edit().putString("input_" + id, name.trim()).apply();
     }
 
-    // ---- custom categories ----
-    List<String> categories() {
-        String s = p.getString("categories", "");
-        List<String> out = new ArrayList<>();
-        if (!s.isEmpty()) out.addAll(Arrays.asList(s.split("\\|")));
-        return out;
-    }
-    void setCategories(List<String> l) { p.edit().putString("categories", String.join("|", l)).apply(); }
-    List<String> categoryApps(String name) { return list("cat_" + name); }
-    void setCategoryApps(String name, List<String> l) { putList("cat_" + name, l); }
-    void deleteCategory(String name) {
-        List<String> c = categories(); c.remove(name); setCategories(c);
-        p.edit().remove("cat_" + name).apply();
-    }
-    void renameCategory(String from, String to) {
-        List<String> c = categories();
-        int i = c.indexOf(from);
-        if (i < 0) return;
-        c.set(i, to);
-        setCategories(c);
-        setCategoryApps(to, categoryApps(from));
-        p.edit().remove("cat_" + from).apply();
-    }
-
-    boolean categoryGrid(String name) { return p.getBoolean("catgrid_" + name, false); }
-    void setCategoryGrid(String name, boolean grid) { p.edit().putBoolean("catgrid_" + name, grid).apply(); }
-
-    // ---- wallpaper schedule, clock, data usage, focus border ----
-    boolean dayNight() { return p.getBoolean("day_night", false); }
-    void setDayNight(boolean b) { p.edit().putBoolean("day_night", b).apply(); }
-    int nightWallpaper() { return p.getInt("night_wallpaper", 11); }
-    void setNightWallpaper(int w) { p.edit().putInt("night_wallpaper", w).apply(); }
-    int timeFormat() { return p.getInt("time_format", 0); }
+    // ---- clock, sounds, data usage, room ----
+    /** 0 = 12-hour with AM/PM, 1 = 24-hour, 2 = 12-hour without AM/PM. */
+    int timeFormat() { return p.getInt("time_format", 2); }
     void setTimeFormat(int f) { p.edit().putInt("time_format", f).apply(); }
-    int dateFormat() { return p.getInt("date_format", 0); }
-    void setDateFormat(int f) { p.edit().putInt("date_format", f).apply(); }
+    boolean sounds() { return p.getBoolean("sounds", true); }
+    void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
     boolean showDataUsage() { return p.getBoolean("show_data", true); }
     void setShowDataUsage(boolean b) { p.edit().putBoolean("show_data", b).apply(); }
-    static final int LAYOUT_SHOWCASE = 0, LAYOUT_CLASSIC = 1;
-    int layout() { return p.getInt("layout", LAYOUT_SHOWCASE); }
-    void setLayout(int l) { p.edit().putInt("layout", l).apply(); }
-    static final int FOCUS_GLASS = 0, FOCUS_MINIMAL = 1;
-    int focusStyle() { return p.getInt("focus_style", FOCUS_GLASS); }
-    void setFocusStyle(int f) { p.edit().putInt("focus_style", f).apply(); }
-    int slideMinutes() { return p.getInt("slide_minutes", 15); }
-    void setSlideMinutes(int m) { p.edit().putInt("slide_minutes", m).apply(); }
-    int slideIndex() { return p.getInt("slide_index", 0); }
-    void setSlideIndex(int i) { p.edit().putInt("slide_index", i).apply(); }
-    /** -1 = Custom (the look was changed by hand after picking a theme). */
-    int theme() { return p.getInt("theme", 0); }
-    void setTheme(int t) { p.edit().putInt("theme", t).apply(); }
-    int glassTint() { return p.getInt("glass_tint", 0x26FFFFFF); }
-    void setGlassTint(int c) { p.edit().putInt("glass_tint", c).apply(); }
-    int panelColor() { return p.getInt("panel_color", 0xF2181B22); }
-    void setPanelColor(int c) { p.edit().putInt("panel_color", c).apply(); }
-    /** 0 = clock on the right, 1 = big clock + greeting on the left (Forest look). */
-    int headerStyle() { return p.getInt("header_style", 0); }
-    void setHeaderStyle(int s) { p.edit().putInt("header_style", s).apply(); }
-    /** 0 = frosted glass dock, 1 = apps float directly on the wallpaper. */
-    int dockStyle() { return p.getInt("dock_style", 0); }
-    void setDockStyle(int s) { p.edit().putInt("dock_style", s).apply(); }
-    // ---- weather (opt-in) & status line
+    String roomName() { return p.getString("room_name", "Living room"); }
+    void setRoomName(String n) { p.edit().putString("room_name", n).apply(); }
+
+    // ---- weather (opt-in) ----
     boolean weatherOn() { return p.getBoolean("weather_on", false); }
     void setWeatherOn(boolean b) { p.edit().putBoolean("weather_on", b).apply(); }
     String weatherCity() { return p.getString("weather_city", ""); }
@@ -139,26 +89,8 @@ final class Store {
     void setWeather(float temp, int code, long time) {
         p.edit().putFloat("weather_temp", temp).putInt("weather_code", code).putLong("weather_time", time).apply();
     }
-    String roomName() { return p.getString("room_name", "Living room"); }
-    void setRoomName(String n) { p.edit().putString("room_name", n).apply(); }
-    boolean sounds() { return p.getBoolean("sounds", true); }
-    void setSounds(boolean b) { p.edit().putBoolean("sounds", b).apply(); }
-    int border() { return p.getInt("border", 1); }
-    void setBorder(int b) { p.edit().putInt("border", b).apply(); }
 
-    // ---- look ----
-    static final int STYLE_MODERN = 0, STYLE_PREMIUM = 1, STYLE_CAPSULE = 2, STYLE_MONO = 3, STYLE_COMPACT = 4, STYLE_SQUARE = 5, STYLE_TINTED = 6;
-    int cardStyle() { return p.getInt("card_style", STYLE_MODERN); }
-    void setCardStyle(int s) { p.edit().putInt("card_style", s).apply(); }
-    int accent() { return p.getInt("accent", 0); }
-    void setAccent(int a) { p.edit().putInt("accent", a).apply(); }
-    boolean continueWatching() { return p.getBoolean("continue_watching", true); }
-    void setContinueWatching(boolean b) { p.edit().putBoolean("continue_watching", b).apply(); }
-
-    // ---- misc ----
-    int wallpaper() { return p.getInt("wallpaper", 8); }
-    void setWallpaper(int i) { p.edit().putInt("wallpaper", i).apply(); }
-
+    // ---- sleep timer & Google home bypass ----
     long sleepAt() { return p.getLong("sleep_at", 0); }
     void setSleepAt(long t) { p.edit().putLong("sleep_at", t).apply(); }
 

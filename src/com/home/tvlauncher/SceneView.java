@@ -11,7 +11,7 @@ import java.util.Random;
 
 /** Animated weather drawn over the wallpaper: snow, rain, storm, fog, drifting clouds or stars. */
 final class SceneView extends View {
-    static final int NONE = 0, SNOW = 1, RAIN = 2, STORM = 3, FOG = 4, CLOUDS = 5, STARS = 6;
+    static final int NONE = 0, SNOW = 1, RAIN = 2, STORM = 3, FOG = 4, CLOUDS = 5, STARS = 6, FIREFLIES = 7;
 
     private final int mode;
     private final float density;
@@ -25,6 +25,7 @@ final class SceneView extends View {
     private int count;
     private float flash;          // storm lightning brightness, 0..1
     private float nextFlashIn = 4f;
+    private Fireflies fireflies;
 
     SceneView(Context c, int mode) {
         super(c);
@@ -77,6 +78,14 @@ final class SceneView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         int w = getWidth(), h = getHeight();
+        if (mode == FIREFLIES && w > 0 && h > 0) {
+            if (fireflies == null) { fireflies = new Fireflies(density); last = System.nanoTime(); }
+            long t = System.nanoTime();
+            fireflies.draw(canvas, w, h, Math.min(0.05f, (t - last) / 1e9f));
+            last = t;
+            postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
+            return;
+        }
         if (w == 0 || h == 0 || count == 0) return;
         if (!seeded) {
             for (int i = 0; i < count; i++) seed(w, h, i, true);
@@ -151,6 +160,6 @@ final class SceneView extends View {
                 }
                 break;
         }
-        postInvalidateOnAnimation();
+        postInvalidateDelayed(33); // ~30 fps is smooth for weather and light on the TV
     }
 }

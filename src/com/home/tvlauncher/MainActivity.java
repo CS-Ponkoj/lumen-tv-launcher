@@ -1455,7 +1455,7 @@ public class MainActivity extends Activity {
             case "fog": mode = SceneView.FOG; break;
             case "partly":
             case "cloudy": mode = SceneView.CLOUDS; break;
-            default: mode = phase.equals("night") ? SceneView.STARS : SceneView.NONE;
+            default: mode = phase.equals("night") ? SceneView.FIREFLIES : SceneView.NONE;
         }
         if (sceneView != null) root.removeView(sceneView);
         sceneView = new SceneView(this, mode);

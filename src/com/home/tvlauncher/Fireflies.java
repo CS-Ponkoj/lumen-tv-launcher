@@ -37,7 +37,39 @@ final class Fireflies {
     private final float[] sx = new float[STARS], sy = new float[STARS], sr = new float[STARS], sp = new float[STARS];
     private boolean seeded;
 
-    private static final float FLASH = 0.7f;     // seconds lit
+    // Forest photo used to hide far fireflies behind trees (dark pixels = trunk/branches in front).
+    private Bitmap forest;
+    private int screenW, screenH;
+
+    private float avgLum = 70;
+
+    void setForest(Bitmap bg) {
+        forest = bg;
+        if (bg == null) return;
+        long sum = 0; int n = 0;   // average brightness of the tree band, so it works at night too
+        for (int y = bg.getHeight() * 2 / 5; y < bg.getHeight() * 4 / 5; y += 8)
+            for (int x = 0; x < bg.getWidth(); x += 8) {
+                int c = bg.getPixel(x, y);
+                sum += (((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 6 + (c & 255)) / 10; n++;
+            }
+        avgLum = n > 0 ? sum / (float) n : 70;
+    }
+
+    /** 0..1 how much a firefly at depth `dp` is hidden by the tree at (x, y). */
+    private float occlusion(float x, float y, float dp) {
+        if (forest == null || dp > 0.6f || screenW == 0) return 0;
+        float scale = Math.max(screenW / (float) forest.getWidth(), screenH / (float) forest.getHeight());
+        float offX = (screenW - forest.getWidth() * scale) / 2f, offY = (screenH - forest.getHeight() * scale) / 2f;
+        int bx = (int) ((x - offX) / scale), by = (int) ((y - offY) / scale);
+        if (bx < 0 || by < 0 || bx >= forest.getWidth() || by >= forest.getHeight()) return 0;
+        int c = forest.getPixel(bx, by);
+        int lum = (((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 6 + (c & 255)) / 10;
+        // darker than the misty gaps = a tree in front; the farther the firefly, the more it hides
+        float tree = Math.max(0, Math.min(1, (avgLum * 0.85f - lum) / (avgLum * 0.35f)));
+        return tree * (1 - dp / 0.6f);
+    }
+
+    private static final float FLASH = 2.0f;     // seconds lit: a slow, soft glow
     private static final float SWOOP = 1.2f;     // dip + upswing, flash on the last part
 
     Fireflies(float density) {
@@ -56,14 +88,14 @@ final class Fireflies {
         for (int i = 0; i < MALES; i++) {
             depth[i] = rnd.nextFloat();
             mx[i] = rnd.nextFloat() * w;
-            my[i] = h * (0.55f + rnd.nextFloat() * 0.4f);       // a few feet above the ground
+            my[i] = h * (0.36f + rnd.nextFloat() * 0.5f);       // among the trees
             dir[i] = rnd.nextFloat() * 6.28f;
-            period[i] = 5f + rnd.nextFloat() * 2f;               // 5-7 s rhythm
+            period[i] = 6f + rnd.nextFloat() * 4f;               // 6-10 s rhythm
             cycle[i] = rnd.nextFloat() * period[i];
         }
         for (int i = 0; i < FEMALES; i++) {
             fx[i] = rnd.nextFloat() * w;
-            fy[i] = h * (0.82f + rnd.nextFloat() * 0.16f);      // resting in the grass
+            fy[i] = h * (0.6f + rnd.nextFloat() * 0.3f);       // resting on branches and grass
             fReplyIn[i] = -1;
         }
         for (int i = 0; i < STARS; i++) {
@@ -75,8 +107,15 @@ final class Fireflies {
         seeded = true;
     }
 
-    private void light(Canvas c, float x, float y, float coreR, float b) {
+    private void light(Canvas c, float x, float y, float coreR, float b, float dp) {
+        b *= 1 - occlusion(x, y, dp);
+        b *= 0.45f + 0.55f * dp;                  // far ones are dimmer through the mist
         if (b <= 0.01f) return;
+        // very faint light spilling onto the mist around it
+        float wide = coreR * 16f;
+        haloPaint.setAlpha((int) (40 * b));
+        dst.set(x - wide, y - wide, x + wide, y + wide);
+        c.drawBitmap(halo, null, dst, haloPaint);
         float hr = coreR * 6f;
         haloPaint.setAlpha((int) (255 * b));
         dst.set(x - hr, y - hr, x + hr, y + hr);
@@ -88,13 +127,12 @@ final class Fireflies {
     /** Fast rise, short hold, slightly slower fade - like a real flash. */
     private static float flashCurve(float t) {
         if (t < 0 || t > 1) return 0;
-        if (t < 0.15f) return t / 0.15f;
-        if (t < 0.6f) return 1f;
-        float f = 1 - (t - 0.6f) / 0.4f;
-        return f * f;
+        float s = (float) Math.sin(t * Math.PI);   // gentle swell on, gentle fade off
+        return s * s * (3 - 2 * s);
     }
 
     void draw(Canvas c, int w, int h, float dt) {
+        screenW = w; screenH = h;
         if (!seeded) seed(w, h);
 
         for (int i = 0; i < STARS; i++) {
@@ -115,7 +153,7 @@ final class Fireflies {
             if (ft >= 0 && ft <= 1) {
                 my[i] -= 4 * d * dt;                                    // the faintest lift while lit
                 float b = flashCurve(ft) * (0.55f + 0.45f * depth[i]);
-                light(c, mx[i], my[i], (0.8f + depth[i] * 1.2f) * d, b);
+                light(c, mx[i], my[i], (0.7f + depth[i] * 1.3f) * d, b, depth[i]);
                 if (!answered[i] && ft > 0.3f) {
                     answered[i] = true;
                     for (int f = 0; f < FEMALES; f++) {
@@ -129,11 +167,11 @@ final class Fireflies {
             if (cycle[i] >= period[i]) {
                 cycle[i] = 0;
                 answered[i] = false;
-                period[i] = 5f + rnd.nextFloat() * 2f;
+                period[i] = 6f + rnd.nextFloat() * 4f;
             }
             // stay in the lower forest band, wrap at the sides
-            if (my[i] < h * 0.45f) dir[i] = (float) (Math.PI / 2);
-            if (my[i] > h * 0.97f) dir[i] = (float) (-Math.PI / 2);
+            if (my[i] < h * 0.34f) dir[i] = (float) (Math.PI / 2);
+            if (my[i] > h * 0.9f) dir[i] = (float) (-Math.PI / 2);
             if (mx[i] < -30 * d) mx[i] = w + 20 * d;
             if (mx[i] > w + 30 * d) mx[i] = -20 * d;
         }
@@ -145,8 +183,8 @@ final class Fireflies {
             }
             if (fGlow[f] > 0) {
                 fGlow[f] += dt;
-                float t = fGlow[f] / 0.55f;
-                light(c, fx[f], fy[f], 0.9f * d, flashCurve(t) * 0.75f);
+                float t = fGlow[f] / 1.2f;
+                light(c, fx[f], fy[f], 0.9f * d, flashCurve(t) * 0.75f, 0.7f);
                 if (t >= 1) { fGlow[f] = 0; fReplyIn[f] = -1; }
             }
         }

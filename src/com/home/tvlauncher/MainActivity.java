@@ -1459,6 +1459,7 @@ public class MainActivity extends Activity {
         }
         if (sceneView != null) root.removeView(sceneView);
         sceneView = new SceneView(this, mode);
+        sceneView.setForest(graded(phase, weather));
         root.addView(sceneView, root.indexOfChild(bgView) + 1, new FrameLayout.LayoutParams(-1, -1));
     }
 

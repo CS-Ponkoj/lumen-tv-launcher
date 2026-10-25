@@ -26,6 +26,9 @@ final class SceneView extends View {
     private float flash;          // storm lightning brightness, 0..1
     private float nextFlashIn = 4f;
     private Fireflies fireflies;
+    private android.graphics.Bitmap forest;
+
+    void setForest(android.graphics.Bitmap bg) { forest = bg; if (fireflies != null) fireflies.setForest(bg); }
 
     SceneView(Context c, int mode) {
         super(c);
@@ -79,7 +82,7 @@ final class SceneView extends View {
     protected void onDraw(Canvas canvas) {
         int w = getWidth(), h = getHeight();
         if (mode == FIREFLIES && w > 0 && h > 0) {
-            if (fireflies == null) { fireflies = new Fireflies(density); last = System.nanoTime(); }
+            if (fireflies == null) { fireflies = new Fireflies(density); fireflies.setForest(forest); last = System.nanoTime(); }
             long t = System.nanoTime();
             fireflies.draw(canvas, w, h, Math.min(0.05f, (t - last) / 1e9f));
             last = t;

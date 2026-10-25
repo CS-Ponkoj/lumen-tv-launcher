@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private LinearLayout weatherRow;
     private View favoritesTray, firstFocus, settingsPill;
     private View panel;
+    private View homePill;
     private String dataToday;
     private Bitmap wallpaper;
 
@@ -512,6 +513,8 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(pill(new IconDrawable(IconDrawable.INPUT), "Inputs", null, this::inputsDialog));
+        homePill = pill(new IconDrawable(IconDrawable.HOME), "Home", null, this::openGoogleHomePanel);
+        row.addView(homePill);
         LinearLayout wifi = pill(new IconDrawable(IconDrawable.WIFI, wifiLevel()), "Wi-Fi", null, this::networkDialog);
         wifiPillIcon = (ImageView) wifi.getChildAt(0);
         wifiPillText = (TextView) wifi.getChildAt(1);
@@ -603,6 +606,17 @@ public class MainActivity extends Activity {
             }
         }
         lockRowEnds(row);
+        // Up from any favourite goes to the pills; Down from a pill comes back to the first favourite.
+        if (homePill != null) {
+            if (homePill.getId() == View.NO_ID) homePill.setId(View.generateViewId());
+            for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setNextFocusUpId(homePill.getId());
+            View first = row.getChildCount() > 0 ? row.getChildAt(0) : null;
+            if (first != null) {
+                if (first.getId() == View.NO_ID) first.setId(View.generateViewId());
+                ViewGroup pillRow = (ViewGroup) homePill.getParent();
+                for (int i = 0; i < pillRow.getChildCount(); i++) pillRow.getChildAt(i).setNextFocusDownId(first.getId());
+            }
+        }
         hs.addView(row);
         tray.addView(hs);
         return tray;
@@ -1171,6 +1185,21 @@ public class MainActivity extends Activity {
                         : "To make the remote's Home button open Lumen, turn on \"Lumen - Home button\" in Accessibility settings.")
                 .setPositiveButton("Accessibility settings", (d, w) -> safeStart(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)))
                 .setNegativeButton("Close", null).show();
+    }
+
+    /** Google Home panel (lights and other smart devices), part of Google TV's dreamx app. */
+    private void openGoogleHomePanel() {
+        try {
+            startActivity(new Intent("com.google.android.libraries.tv.smarthome.intent.action.OPEN_SMART_HOME")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent("android.app.action.OPEN_NOTIFICATION_HANDLER_PANEL")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e2) {
+                toast("Google Home panel isn't available on this TV");
+            }
+        }
     }
 
     private void openGoogleHome() {

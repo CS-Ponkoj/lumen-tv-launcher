@@ -11,7 +11,7 @@ import android.graphics.drawable.Drawable;
 
 /** Clean, filled status icons (Wi-Fi with signal level, settings gear, inputs, search, picture). */
 final class IconDrawable extends Drawable {
-    static final int WIFI = 0, GEAR = 1, INPUT = 2, SEARCH = 3, PICTURE = 4;
+    static final int WIFI = 0, GEAR = 1, INPUT = 2, SEARCH = 3, PICTURE = 4, HOME = 5;
 
     private final int kind;
     private final int level; // Wi-Fi: 0..3, -1 = offline
@@ -45,6 +45,7 @@ final class IconDrawable extends Drawable {
             case GEAR: gear(c, x + s / 2, y + s / 2, s); break;
             case INPUT: input(c, x, y, s); break;
             case SEARCH: search(c, x, y, s); break;
+            case HOME: house(c, x, y, s); break;
             default: picture(c, x, y, s);
         }
     }
@@ -116,6 +117,26 @@ final class IconDrawable extends Drawable {
         head.lineTo(x + s * 0.57f, y + s * 0.45f);
         head.lineTo(x + s * 0.44f, y + s * 0.57f);
         c.drawPath(head, st);
+    }
+
+    /** Google Home style house outline. */
+    private void house(Canvas c, float x, float y, float s) {
+        Paint st = new Paint(p);
+        st.setStyle(Paint.Style.STROKE);
+        st.setStrokeWidth(s * 0.1f);
+        st.setStrokeJoin(Paint.Join.ROUND);
+        st.setStrokeCap(Paint.Cap.ROUND);
+        Path h = new Path();
+        h.moveTo(x + s * 0.14f, y + s * 0.88f);
+        h.lineTo(x + s * 0.14f, y + s * 0.44f);
+        h.lineTo(x + s * 0.5f, y + s * 0.12f);
+        h.lineTo(x + s * 0.86f, y + s * 0.44f);
+        h.lineTo(x + s * 0.86f, y + s * 0.88f);
+        h.close();
+        c.drawPath(h, st);
+        c.drawLine(x + s * 0.4f, y + s * 0.88f, x + s * 0.4f, y + s * 0.64f, st);
+        c.drawLine(x + s * 0.4f, y + s * 0.64f, x + s * 0.6f, y + s * 0.64f, st);
+        c.drawLine(x + s * 0.6f, y + s * 0.64f, x + s * 0.6f, y + s * 0.88f, st);
     }
 
     private void search(Canvas c, float x, float y, float s) {

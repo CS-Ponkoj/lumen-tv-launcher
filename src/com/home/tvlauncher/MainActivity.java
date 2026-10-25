@@ -1208,6 +1208,7 @@ public class MainActivity extends Activity {
                 new Item("Clock: " + new String[]{"12-hour", "24-hour", "12-hour, no AM/PM"}[Math.max(0, Math.min(2, store.timeFormat()))],
                         () -> { store.setTimeFormat((store.timeFormat() + 1) % 3); reopen(); }),
                 new Item("Home screen", null),
+                new Item("Background picture: " + (store.background().isEmpty() ? "Forest" : store.background()), () -> { closePanel(); backgroundDialog(); }),
                 new Item("Live scene: " + (store.liveScene() ? "Time + weather" : "Always snowfall"),
                         () -> { store.setLiveScene(!store.liveScene()); reopen(); }),
                 new Item("Hidden apps", this::hiddenDialog),
@@ -1500,15 +1501,75 @@ public class MainActivity extends Activity {
         sceneViews.add(stack);
     }
 
+    /** Folder for your own background pictures (copy JPG/PNG files here). */
+    private java.io.File backgroundsDir() {
+        java.io.File dir = getExternalFilesDir("backgrounds");
+        if (dir != null && !dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    private List<String> backgroundFiles() {
+        List<String> out = new ArrayList<>();
+        java.io.File dir = backgroundsDir();
+        java.io.File[] fs = dir != null ? dir.listFiles() : null;
+        if (fs != null) for (java.io.File f : fs) {
+            String n = f.getName().toLowerCase(Locale.ROOT);
+            if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp")) out.add(f.getName());
+        }
+        Collections.sort(out);
+        return out;
+    }
+
+    /** Your chosen picture (scaled to about screen size), or the built-in forest. */
+    private Bitmap loadBackground(BitmapFactory.Options o) {
+        String name = store.background();
+        java.io.File dir = backgroundsDir();
+        if (!name.isEmpty() && dir != null) {
+            java.io.File f = new java.io.File(dir, name);
+            if (f.exists()) {
+                BitmapFactory.Options b = new BitmapFactory.Options();
+                b.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(f.getAbsolutePath(), b);
+                int sample = 1;
+                while (b.outWidth / (sample * 2) >= 1920 && b.outHeight / (sample * 2) >= 1080) sample *= 2;
+                BitmapFactory.Options real = new BitmapFactory.Options();
+                real.inSampleSize = sample;
+                Bitmap bm = BitmapFactory.decodeFile(f.getAbsolutePath(), real);
+                if (bm != null) return bm.isMutable() ? bm : bm.copy(Bitmap.Config.ARGB_8888, false);
+            }
+        }
+        return BitmapFactory.decodeResource(getResources(), R.drawable.forest, o);
+    }
+
+    private void backgroundDialog() {
+        List<String> files = backgroundFiles();
+        List<String> names = new ArrayList<>();
+        names.add("Misty forest (built in)");
+        names.addAll(files);
+        int current = files.indexOf(store.background()) + 1;
+        java.io.File dir = backgroundsDir();
+        if (files.isEmpty()) toast("Add your own pictures to " + (dir != null ? dir.getAbsolutePath() : "the backgrounds folder"));
+        new AlertDialog.Builder(this).setTitle("Background picture")
+                .setSingleChoiceItems(names.toArray(new String[0]), current, (d, w) -> {
+                    store.setBackground(w == 0 ? "" : files.get(w - 1));
+                    d.dismiss();
+                    graded.clear();
+                    sceneKey = null;
+                    applyScene();
+                    if (firstFocus != null) firstFocus.post(firstFocus::requestFocus);
+                })
+                .setNegativeButton("Close", null).show();
+    }
+
     /** The misty forest photo (CC0, Jay Mantri via Pexels) re-lit for the time of day and weather. */
     private Bitmap graded(String phase, String weather) {
-        String key = phase + "/" + weather;
+        String key = store.background() + "|" + phase + "/" + weather;
         Bitmap cached = graded.get(key);
         if (cached != null) return cached;
         if (graded.size() > 3) { graded.clear(); }   // keep memory low on the TV
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inScaled = false;
-        Bitmap src = BitmapFactory.decodeResource(getResources(), R.drawable.forest, o);
+        Bitmap src = loadBackground(o);
         Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
 
         // Light of the hour: saturation, then per-channel scale and lift.

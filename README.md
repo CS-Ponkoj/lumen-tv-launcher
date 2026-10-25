@@ -10,6 +10,11 @@ Lumen 2 has one look, **Winter Snowfall**: a misty forest with gently falling sn
   (room · Wi-Fi · data used today · sleep timer) and a greeting
 - **Pills** (top right): Inputs, Wi-Fi, Settings
 - **Favourites tray** with the selected app's name in large type, then **Recent** and **All apps**
+- **Live scene**: the picture is re-lit for dawn, day, dusk and night, with animated weather
+  (snow, rain, storm, fog, clouds), sunbeams and birds on clear days, fireflies on clear nights,
+  and seasonal leaves, blossom and flurries
+- **Your own background**: copy pictures to `Android/data/com.home.tvlauncher/files/backgrounds/`
+  on the TV, then Settings → Background picture. The live scene keeps working on top of it.
 - Long-press OK on an app: add to favourites, move, rename, hide, app info
 - Settings panel: weather city and units, room name, clock format, hidden apps, input names,
   sleep timer, screensaver, navigation sounds

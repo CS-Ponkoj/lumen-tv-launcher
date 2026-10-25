@@ -110,6 +110,10 @@ final class Store {
         p.edit().putFloat("weather_temp", temp).putInt("weather_code", code).putLong("weather_time", time).apply();
     }
 
+    /** Background picture file name in Lumen's backgrounds folder; empty = the built-in forest. */
+    String background() { return p.getString("background", ""); }
+    void setBackground(String f) { p.edit().putString("background", f).apply(); }
+
     // ---- live scene ----
     /** true = scene follows time of day and weather; false = always Winter Snowfall. */
     boolean liveScene() { return p.getBoolean("live_scene", true); }

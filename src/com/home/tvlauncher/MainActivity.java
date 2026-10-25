@@ -70,7 +70,7 @@ public class MainActivity extends Activity {
             "com.netflix.ninja", "com.google.android.youtube.tv", "com.disney.disneyplus",
             "com.amazon.amazonvideo.livingroom", "com.wbd.stream", "com.hulu.livingroomplus"};
     private static final String[] TIME_FORMATS = {"h:mm a", "HH:mm", "h:mm"};
-    private static final int GRID_COLUMNS = 5;
+    private static final int GRID_COLUMNS = 6;
 
     private Store store;
     private PackageManager pm;
@@ -590,7 +590,7 @@ public class MainActivity extends Activity {
         row.setClipChildren(false);
         row.setClipToPadding(false);
         row.setPadding(dp(4), dp(8), dp(14), dp(8)); // room for the focused card to grow
-        int w = (usableWidthPx() - dp(24) - dp(20) * 4) / 4;
+        int w = (usableWidthPx() - dp(24) - dp(20) * 5) / 5;
         int h = w * 9 / 16;
         for (String p : pkgs) {
             App a = apps.get(p);

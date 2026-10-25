@@ -1208,6 +1208,7 @@ public class MainActivity extends Activity {
                 new Item("Clock: " + new String[]{"12-hour", "24-hour", "12-hour, no AM/PM"}[Math.max(0, Math.min(2, store.timeFormat()))],
                         () -> { store.setTimeFormat((store.timeFormat() + 1) % 3); reopen(); }),
                 new Item("Home screen", null),
+                new Item("Upload picture from phone", () -> { closePanel(); uploadDialog(); }),
                 new Item("Background picture: " + (store.background().isEmpty() ? "Forest" : store.background()), () -> { closePanel(); backgroundDialog(); }),
                 new Item("Live scene: " + (store.liveScene() ? "Time + weather" : "Always snowfall"),
                         () -> { store.setLiveScene(!store.liveScene()); reopen(); }),
@@ -1539,6 +1540,56 @@ public class MainActivity extends Activity {
             }
         }
         return BitmapFactory.decodeResource(getResources(), R.drawable.forest, o);
+    }
+
+    private UploadServer uploadServer;
+
+    private String tvAddress() {
+        try {
+            ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+            android.net.LinkProperties lp = cm.getLinkProperties(cm.getActiveNetwork());
+            if (lp != null) for (android.net.LinkAddress la : lp.getLinkAddresses())
+                if (la.getAddress() instanceof java.net.Inet4Address) return la.getAddress().getHostAddress();
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    /** Shows the address to open on a phone; the page there sends a photo straight to the TV. */
+    private void uploadDialog() {
+        String ip = tvAddress();
+        if (ip == null) { toast("Connect the TV to Wi-Fi first"); return; }
+        String url = "http://" + ip + ":" + UploadServer.PORT;
+        TextView big = new TextView(this);
+        big.setText(url);
+        big.setTextColor(Color.WHITE);
+        big.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        big.setGravity(Gravity.CENTER);
+        big.setPadding(dp(24), dp(16), dp(24), dp(8));
+        TextView how = new TextView(this);
+        how.setText("On your phone (on the same Wi-Fi), open this address in the browser, choose a photo and tap Send to TV.\n\nWaiting for a picture…");
+        how.setTextColor(0xCCFFFFFF);
+        how.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        how.setGravity(Gravity.CENTER);
+        how.setPadding(dp(24), dp(4), dp(24), dp(16));
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(big);
+        box.addView(how);
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("Upload picture from phone").setView(box)
+                .setNegativeButton("Done", null).create();
+        uploadServer = new UploadServer(backgroundsDir(), f -> runOnUiThread(() -> {
+            store.setBackground(f.getName());
+            graded.clear();
+            sceneKey = null;
+            applyScene();
+            how.setText("Got it! \"" + f.getName() + "\" is your background now.\nSend another, or press Done.");
+        }));
+        uploadServer.start();
+        dlg.setOnDismissListener(d -> {
+            if (uploadServer != null) { uploadServer.stop(); uploadServer = null; }
+            if (firstFocus != null) firstFocus.post(firstFocus::requestFocus);
+        });
+        dlg.show();
     }
 
     private void backgroundDialog() {

@@ -220,7 +220,7 @@ public class MainActivity extends Activity {
 
         titleView = new TextView(this);
         titleView.setTextColor(Color.WHITE);
-        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 40);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 32);
         titleView.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         titleView.setShadowLayer(dp(8), 0, dp(2), 0x80000000);
         titleView.setSingleLine(true);
@@ -369,14 +369,11 @@ public class MainActivity extends Activity {
             wifiPillIcon.setImageDrawable(d);
         }
         if (statusView == null) return;
-        StringBuilder sb = new StringBuilder(store.roomName());
-        if (!net.isEmpty()) sb.append(" · ").append(net);
-        if (dataToday != null && store.showDataUsage()) sb.append(" · ").append(dataToday);
+        // Only shown while the sleep timer runs; Wi-Fi is in its pill, data in the Wi-Fi details.
         long left = store.sleepAt() - System.currentTimeMillis();
-        if (store.sleepAt() != 0 && left > 0) {
-            sb.append(" · Sleep in ").append(Math.max(1, (left + 59_999) / 60_000)).append(" min");
-        }
-        statusView.setText(sb.toString());
+        boolean sleeping = store.sleepAt() != 0 && left > 0;
+        statusView.setVisibility(sleeping ? View.VISIBLE : View.GONE);
+        if (sleeping) statusView.setText("Sleep in " + Math.max(1, (left + 59_999) / 60_000) + " min");
     }
 
     private String networkSummary() {
@@ -559,8 +556,7 @@ public class MainActivity extends Activity {
     private GradientDrawable pillBg(boolean focused) {
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(dp(24));
-        g.setColor(focused ? Color.WHITE : 0x40000000);
-        g.setStroke(dp(1), focused ? Color.WHITE : 0x59FFFFFF);
+        g.setColor(focused ? Color.WHITE : 0x26FFFFFF);
         return g;
     }
 
@@ -575,11 +571,7 @@ public class MainActivity extends Activity {
         LinearLayout tray = new LinearLayout(this);
         tray.setClipChildren(true);   // cards past the 4th scroll inside the tray, not out of it
         tray.setClipToPadding(true);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(26));
-        bg.setColor(0x2E000000);
-        bg.setStroke(dp(1), 0x26FFFFFF);
-        tray.setBackground(bg);
+        tray.setBackground(null); // no box behind the tray: cleaner
         tray.setPadding(dp(12), dp(4), dp(12), dp(4));
 
         HorizontalScrollView hs = new HorizontalScrollView(this);
@@ -677,8 +669,7 @@ public class MainActivity extends Activity {
 
         GradientDrawable frost = new GradientDrawable();
         frost.setCornerRadius(dp(14));
-        frost.setColor(0x2EFFFFFF);
-        frost.setStroke(dp(1), 0x4DFFFFFF);
+        frost.setColor(0x1FFFFFFF); // soft frost, no outline
         GradientDrawable solid = new GradientDrawable();
         solid.setCornerRadius(dp(14));
         solid.setColor(0xFF2A2A33);
@@ -1128,12 +1119,8 @@ public class MainActivity extends Activity {
                 new Item("Units: " + (store.weatherFahrenheit() ? "°F" : "°C"), () -> {
                     store.setWeatherFahrenheit(!store.weatherFahrenheit()); store.setWeather(0, 0, 0); reopen();
                 }),
-                new Item("Room name: " + store.roomName(), () -> textDialog("Room name", store.roomName(),
-                        "e.g. Living room", s -> { store.setRoomName(s.trim().isEmpty() ? "Living room" : s.trim()); reopen(); })),
                 new Item("Clock: " + new String[]{"12-hour", "24-hour", "12-hour, no AM/PM"}[Math.max(0, Math.min(2, store.timeFormat()))],
                         () -> { store.setTimeFormat((store.timeFormat() + 1) % 3); reopen(); }),
-                new Item("Data used today: " + (store.showDataUsage() ? "Shown" : "Hidden"),
-                        () -> { store.setShowDataUsage(!store.showDataUsage()); reopen(); }),
                 new Item("Home screen", null),
                 new Item("Hidden apps", this::hiddenDialog),
                 new Item("Rename inputs", this::renameInputs),

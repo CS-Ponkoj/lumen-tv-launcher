@@ -664,37 +664,64 @@ public class MainActivity extends Activity {
         return col;
     }
 
-    /** A rounded app card: banner fills it, or the icon sits centred on a dark tile. */
+    /**
+     * Frosted-glass card: white logo on a frosted tile; when selected it lights up in the
+     * app's real colours, lifts, and glows in the app's own colour.
+     */
     private View card(App a, int w, int h, boolean favorite) {
         FrameLayout card = new FrameLayout(this);
         card.setFocusable(true);
         card.setClickable(true);
         card.setClipToOutline(true);
-        GradientDrawable base = new GradientDrawable();
-        base.setCornerRadius(dp(14));
-        base.setColor(0xFF2A2A33);
-        card.setBackground(base);
-        ImageView img = new ImageView(this);
+        int glowColor = appColor(a);
+
+        GradientDrawable frost = new GradientDrawable();
+        frost.setCornerRadius(dp(14));
+        frost.setColor(0x2EFFFFFF);
+        frost.setStroke(dp(1), 0x4DFFFFFF);
+        GradientDrawable solid = new GradientDrawable();
+        solid.setCornerRadius(dp(14));
+        solid.setColor(0xFF2A2A33);
+        card.setBackground(frost);
+
+        // Real colours (shown when selected)
+        ImageView color = new ImageView(this);
         if (a.banner != null) {
-            img.setImageDrawable(a.banner);
-            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            card.addView(img, new FrameLayout.LayoutParams(-1, -1));
+            color.setImageDrawable(a.banner);
+            color.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            card.addView(color, new FrameLayout.LayoutParams(-1, -1));
         } else {
-            img.setImageDrawable(a.icon);
-            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            color.setImageDrawable(a.icon);
+            color.setScaleType(ImageView.ScaleType.FIT_CENTER);
             int s = Math.min(w, h) / 2;
-            card.addView(img, new FrameLayout.LayoutParams(s, s, Gravity.CENTER));
+            card.addView(color, new FrameLayout.LayoutParams(s, s, Gravity.CENTER));
         }
+        color.setAlpha(0f);
+
+        // White logo (shown when not selected)
+        ImageView mono = new ImageView(this);
+        mono.setImageDrawable(monoLogo(a));
+        mono.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int pad = Math.min(w, h) / 6;
+        mono.setPadding(pad, pad, pad, pad);
+        card.addView(mono, new FrameLayout.LayoutParams(-1, -1));
+
         boolean moving = favorite && a.pkg.equals(movePkg);
         GradientDrawable ring = new GradientDrawable();
         ring.setCornerRadius(dp(14));
         ring.setColor(0);
         ring.setStroke(dp(3), moving ? 0xFFFFD54F : Color.WHITE);
+        card.setOutlineSpotShadowColor(glowColor);
+        card.setOutlineAmbientShadowColor(glowColor);
+
         card.setOnFocusChangeListener((v, has) -> {
-            v.setForeground(has ? ring : null);
-            v.setElevation(has ? dp(16) : 0);
-            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
-                    .setInterpolator(new DecelerateInterpolator()).setDuration(180).start();
+            v.setBackground(has ? solid : frost);
+            v.setForeground(has || moving ? ring : null);
+            v.setElevation(has ? dp(28) : 0);
+            color.animate().alpha(has ? 1f : 0f).setDuration(160).start();
+            mono.animate().alpha(has ? 0f : 0.92f).setDuration(160).start();
+            v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f)
+                    .setInterpolator(new DecelerateInterpolator()).setDuration(200).start();
             Object tag = v.getTag();
             if (tag instanceof TextView) ((TextView) tag).setVisibility(has ? View.VISIBLE : View.INVISIBLE);
             if (has) {
@@ -706,10 +733,97 @@ public class MainActivity extends Activity {
                 }
             }
         });
+        mono.setAlpha(0.92f);
         if (moving) card.setForeground(ring);
         card.setOnClickListener(v -> launch(a.pkg));
         card.setOnLongClickListener(v -> { appMenu(a); return true; });
         return card;
+    }
+
+    private final Map<String, Drawable> monoCache = new HashMap<>();
+    private final Map<String, Integer> colorCache = new HashMap<>();
+
+    private Bitmap snapshot(App a) {
+        Drawable src = a.banner != null ? a.banner : a.icon;
+        int bw = a.banner != null ? 320 : 144, bh = a.banner != null ? 180 : 144;
+        Bitmap bm = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        src.setBounds(0, 0, bw, bh);
+        src.draw(new android.graphics.Canvas(bm));
+        return bm;
+    }
+
+    /** The banner turned into a white logo on transparent: its edge colour is treated as background. */
+    private Drawable monoLogo(App a) {
+        Drawable cached = monoCache.get(a.pkg);
+        if (cached != null) return cached;
+        Bitmap bm = snapshot(a);
+        int bw = bm.getWidth(), bh = bm.getHeight();
+        int[] px = new int[bw * bh];
+        bm.getPixels(px, 0, bw, 0, 0, bw, bh);
+        long rs = 0, gs = 0, bs = 0;
+        int n = 0;
+        for (int x = 0; x < bw; x++) for (int y : new int[]{0, 1, bh - 2, bh - 1}) {
+            int c = px[y * bw + x]; rs += (c >> 16) & 255; gs += (c >> 8) & 255; bs += c & 255; n++;
+        }
+        for (int y = 0; y < bh; y++) for (int x : new int[]{0, 1, bw - 2, bw - 1}) {
+            int c = px[y * bw + x]; rs += (c >> 16) & 255; gs += (c >> 8) & 255; bs += c & 255; n++;
+        }
+        int br = (int) (rs / n), bg = (int) (gs / n), bb = (int) (bs / n);
+        int[] out = new int[px.length];
+        int covered = 0;
+        for (int i = 0; i < px.length; i++) {
+            int c = px[i];
+            int d = Math.abs(((c >> 16) & 255) - br) + Math.abs(((c >> 8) & 255) - bg) + Math.abs((c & 255) - bb);
+            int alpha = Math.max(0, Math.min(255, (d - 60) * 3)) * (c >>> 24) / 255;
+            if (alpha > 128) covered++;
+            out[i] = (alpha << 24) | 0xFFFFFF;
+        }
+        if (covered > px.length * 0.4) {
+            // Gradient or photo background: keep only the brightest parts (the logo) instead.
+            for (int i = 0; i < px.length; i++) {
+                int c = px[i];
+                int lum = (((c >> 16) & 255) * 3 + ((c >> 8) & 255) * 6 + (c & 255)) / 10;
+                int sat = Math.max(Math.max((c >> 16) & 255, (c >> 8) & 255), c & 255)
+                        - Math.min(Math.min((c >> 16) & 255, (c >> 8) & 255), c & 255);
+                int alpha = sat > 70 ? 0 : Math.max(0, Math.min(255, (lum - 190) * 5)) * (c >>> 24) / 255;
+                out[i] = (alpha << 24) | 0xFFFFFF;
+            }
+        }
+        px = out;
+        bm.setPixels(px, 0, bw, 0, 0, bw, bh);
+        Drawable logo = new android.graphics.drawable.BitmapDrawable(getResources(), bm);
+        monoCache.put(a.pkg, logo);
+        return logo;
+    }
+
+    /** The app's signature colour: the most common vivid colour in its banner (white if none). */
+    private int appColor(App a) {
+        Integer cached = colorCache.get(a.pkg);
+        if (cached != null) return cached;
+        Bitmap bm = snapshot(a);
+        int[] buckets = new int[36];
+        long[][] sum = new long[36][3];
+        float[] hsv = new float[3];
+        for (int y = 0; y < bm.getHeight(); y += 3) {
+            for (int x = 0; x < bm.getWidth(); x += 3) {
+                int c = bm.getPixel(x, y);
+                if ((c >>> 24) < 200) continue;
+                Color.colorToHSV(c, hsv);
+                if (hsv[1] < 0.45f || hsv[2] < 0.35f) continue;
+                int b = Math.min(35, (int) (hsv[0] / 10));
+                buckets[b]++;
+                sum[b][0] += (c >> 16) & 255; sum[b][1] += (c >> 8) & 255; sum[b][2] += c & 255;
+            }
+        }
+        int best = -1;
+        for (int i = 0; i < 36; i++) if (best < 0 || buckets[i] > buckets[best]) best = i;
+        int out = Color.WHITE;
+        if (best >= 0 && buckets[best] > 20) {
+            int k = buckets[best];
+            out = Color.rgb((int) (sum[best][0] / k), (int) (sum[best][1] / k), (int) (sum[best][2] / k));
+        }
+        colorCache.put(a.pkg, out);
+        return out;
     }
 
     private TextView sectionTitle(String s) {

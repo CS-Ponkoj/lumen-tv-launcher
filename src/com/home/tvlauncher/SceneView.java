@@ -33,7 +33,7 @@ final class SceneView extends View {
         setFocusable(false);
         setClickable(false);
         count = mode == SNOW ? 150 : mode == RAIN ? 220 : mode == STORM ? 300 : mode == FOG ? 9
-                : mode == CLOUDS ? 6 : mode == STARS ? 180 : 0;
+                : mode == CLOUDS ? 6 : mode == STARS ? 70 : 0;
         x = new float[count]; y = new float[count]; r = new float[count];
         speed = new float[count]; drift = new float[count]; phase = new float[count];
         alpha = new int[count];
@@ -66,10 +66,10 @@ final class SceneView extends View {
                 alpha[i] = mode == FOG ? 34 + random.nextInt(26) : 26 + random.nextInt(24);
                 break;
             case STARS:
-                y[i] = random.nextFloat() * h * 0.5f;
-                r[i] = (0.6f + depth * 1.4f) * density;
-                speed[i] = 0.6f + random.nextFloat() * 1.6f;   // twinkle rate
-                alpha[i] = 120 + (int) (depth * 135);
+                y[i] = random.nextFloat() * random.nextFloat() * h * 0.32f; // mostly near the top
+                r[i] = (0.35f + depth * 0.6f) * density;
+                speed[i] = 0.4f + random.nextFloat() * 1.2f;   // twinkle rate
+                alpha[i] = 70 + (int) (depth * 110);
                 break;
         }
     }

@@ -86,7 +86,11 @@ public class MainActivity extends Activity {
     private View panel;
     private View homePill;
     private String dataToday;
-    private Bitmap wallpaper;
+    private ImageView bgView;
+    private SceneView sceneView;
+    private String sceneKey;
+    private String forcedScene;   // for previews: "night/rain" etc. via an intent extra
+    private final Map<String, Bitmap> graded = new HashMap<>();
 
     private final Map<String, App> apps = new LinkedHashMap<>();
     private final Map<String, View> favTiles = new HashMap<>();
@@ -117,6 +121,7 @@ public class MainActivity extends Activity {
         pm = getPackageManager();
         root = new FrameLayout(this);
         setContentView(root);
+        forcedScene = getIntent().getStringExtra("scene");
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -156,6 +161,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (intent.hasExtra("scene")) { forcedScene = intent.getStringExtra("scene"); applyScene(); return; }
         // Home pressed while already here: back to the top, first favourite selected.
         closePanel();
         movePkg = null;
@@ -183,11 +189,12 @@ public class MainActivity extends Activity {
         firstFocus = null;
 
         // Wallpaper: misty forest, graded dark and mauve, with falling snow and a darker bottom.
-        ImageView bg = new ImageView(this);
-        bg.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        bg.setImageBitmap(wallpaper());
-        root.addView(bg, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(new SnowView(this), new FrameLayout.LayoutParams(-1, -1));
+        bgView = new ImageView(this);
+        bgView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        root.addView(bgView, new FrameLayout.LayoutParams(-1, -1));
+        sceneView = null;
+        sceneKey = null;
+        applyScene();
         View shade = new View(this);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0x33000000, 0x00000000, 0x00000000, 0x8C000000}));
@@ -346,6 +353,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshInfo() {
+        applyScene();
         if (greetingView != null) greetingView.setText(greeting());
         updateStatusLine();
         showWeather();
@@ -442,8 +450,13 @@ public class MainActivity extends Activity {
                 String unit = store.weatherFahrenheit() ? "&temperature_unit=fahrenheit" : "";
                 org.json.JSONObject f = new org.json.JSONObject(httpGet("https://api.open-meteo.com/v1/forecast?latitude="
                         + store.weatherLat() + "&longitude=" + store.weatherLon()
-                        + "&current=temperature_2m,weather_code" + unit));
+                        + "&current=temperature_2m,weather_code&daily=sunrise,sunset&timezone=auto&forecast_days=1" + unit));
                 org.json.JSONObject cur = f.getJSONObject("current");
+                try {
+                    org.json.JSONObject daily = f.getJSONObject("daily");
+                    store.setSun(minutesOf(daily.getJSONArray("sunrise").getString(0)),
+                            minutesOf(daily.getJSONArray("sunset").getString(0)));
+                } catch (Exception ignored) { }
                 store.setWeather((float) cur.getDouble("temperature_2m"), cur.getInt("weather_code"), System.currentTimeMillis());
                 runOnUiThread(this::showWeather);
             } catch (Exception ignored) {
@@ -1122,6 +1135,8 @@ public class MainActivity extends Activity {
                 new Item("Clock: " + new String[]{"12-hour", "24-hour", "12-hour, no AM/PM"}[Math.max(0, Math.min(2, store.timeFormat()))],
                         () -> { store.setTimeFormat((store.timeFormat() + 1) % 3); reopen(); }),
                 new Item("Home screen", null),
+                new Item("Live scene: " + (store.liveScene() ? "Time + weather" : "Always snowfall"),
+                        () -> { store.setLiveScene(!store.liveScene()); reopen(); }),
                 new Item("Hidden apps", this::hiddenDialog),
                 new Item("Rename inputs", this::renameInputs),
                 new Item("Navigation sounds: " + (store.sounds() ? "On" : "Off"),
@@ -1213,6 +1228,7 @@ public class MainActivity extends Activity {
         if (key.startsWith("Clock"))
             return "Clock: " + new String[]{"12-hour", "24-hour", "12-hour, no AM/PM"}[Math.max(0, Math.min(2, store.timeFormat()))];
         if (key.startsWith("Data")) return "Data used today: " + (store.showDataUsage() ? "Shown" : "Hidden");
+        if (key.startsWith("Live scene")) return "Live scene: " + (store.liveScene() ? "Time + weather" : "Always snowfall");
         if (key.startsWith("Navigation")) return "Navigation sounds: " + (store.sounds() ? "On" : "Off");
         return null;
     }
@@ -1312,28 +1328,140 @@ public class MainActivity extends Activity {
 
     // ================================================================== wallpaper
 
-    /** Misty forest photo (CC0, Jay Mantri via Pexels), graded dark and mauve for snowfall. */
-    private Bitmap wallpaper() {
-        if (wallpaper != null) return wallpaper;
-        Bitmap src = BitmapFactory.decodeResource(getResources(), R.drawable.forest);
+    // ================================================================== live scene (time of day + weather)
+
+    private static final String[] PHASES = {"dawn", "day", "dusk", "night"};
+
+    private static int minutesOf(String isoLocal) {
+        // "2026-10-25T07:21"
+        int t = isoLocal.indexOf('T');
+        String hm = isoLocal.substring(t + 1);
+        return Integer.parseInt(hm.substring(0, 2)) * 60 + Integer.parseInt(hm.substring(3, 5));
+    }
+
+    private String phaseNow() {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        int now = c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE);
+        int rise = store.sunrise() >= 0 ? store.sunrise() : 6 * 60 + 30;
+        int set = store.sunset() >= 0 ? store.sunset() : 18 * 60;
+        if (Math.abs(now - rise) <= 45) return "dawn";
+        if (Math.abs(now - set) <= 45) return "dusk";
+        return now > rise && now < set ? "day" : "night";
+    }
+
+    /** Weather kind as text, from the last weather report (clear when weather is off or stale). */
+    private String weatherNow() {
+        if (!store.weatherOn() || System.currentTimeMillis() - store.weatherTime() > 3 * 3600_000L) return "clear";
+        switch (WeatherIcon.fromCode(store.weatherCode())) {
+            case WeatherIcon.PARTLY: return "partly";
+            case WeatherIcon.CLOUDY: return "cloudy";
+            case WeatherIcon.FOG: return "fog";
+            case WeatherIcon.RAIN: return "rain";
+            case WeatherIcon.SNOW: return "snow";
+            case WeatherIcon.STORM: return "storm";
+            default: return "clear";
+        }
+    }
+
+    /** Picks the scene, re-lights the forest and swaps the animation only when the scene changes. */
+    private void applyScene() {
+        if (bgView == null) return;
+        String key;
+        if (forcedScene != null) key = forcedScene;
+        else if (!store.liveScene()) key = "day/snow";
+        else key = phaseNow() + "/" + weatherNow();
+        if (key.equals(sceneKey)) return;
+        sceneKey = key;
+        String phase = key.substring(0, key.indexOf('/')), weather = key.substring(key.indexOf('/') + 1);
+
+        bgView.setImageBitmap(graded(phase, weather));
+
+        int mode;
+        switch (weather) {
+            case "snow": mode = SceneView.SNOW; break;
+            case "rain": mode = SceneView.RAIN; break;
+            case "storm": mode = SceneView.STORM; break;
+            case "fog": mode = SceneView.FOG; break;
+            case "partly":
+            case "cloudy": mode = SceneView.CLOUDS; break;
+            default: mode = phase.equals("night") ? SceneView.STARS : SceneView.NONE;
+        }
+        if (sceneView != null) root.removeView(sceneView);
+        sceneView = new SceneView(this, mode);
+        root.addView(sceneView, root.indexOfChild(bgView) + 1, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    /** The misty forest photo (CC0, Jay Mantri via Pexels) re-lit for the time of day and weather. */
+    private Bitmap graded(String phase, String weather) {
+        String key = phase + "/" + weather;
+        Bitmap cached = graded.get(key);
+        if (cached != null) return cached;
+        if (graded.size() > 3) { graded.clear(); }   // keep memory low on the TV
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inScaled = false;
+        Bitmap src = BitmapFactory.decodeResource(getResources(), R.drawable.forest, o);
         Bitmap out = Bitmap.createBitmap(src.getWidth(), src.getHeight(), Bitmap.Config.ARGB_8888);
+
+        // Light of the hour: saturation, then per-channel scale and lift.
+        float sat; float[] m; // m = {rScale, gScale, bScale, rAdd, gAdd, bAdd}
+        switch (phase) {
+            case "dawn":  sat = 0.5f; m = new float[]{0.86f, 0.78f, 0.84f, 14, 6, 14}; break;
+            case "dusk":  sat = 0.45f; m = new float[]{0.74f, 0.60f, 0.72f, 12, 4, 20}; break;
+            case "night": sat = 0.30f; m = new float[]{0.24f, 0.30f, 0.46f, 2, 6, 18}; break;
+            default:      sat = 0.70f; m = new float[]{0.92f, 0.98f, 1.04f, 6, 8, 14}; break;
+        }
+        switch (weather) {
+            case "snow":   // the original Winter Snowfall mauve, darker at night
+                sat = 0.15f;
+                m = phase.equals("night") ? new float[]{0.36f, 0.34f, 0.46f, 4, 4, 14}
+                        : new float[]{0.64f, 0.62f, 0.68f, 8, 6, 16};
+                break;
+            case "cloudy": case "partly":
+                sat *= weather.equals("cloudy") ? 0.55f : 0.8f;
+                for (int i = 0; i < 3; i++) m[i] *= weather.equals("cloudy") ? 0.86f : 0.94f;
+                break;
+            case "rain":
+                sat *= 0.45f;
+                for (int i = 0; i < 3; i++) m[i] *= 0.74f;
+                m[5] += 10;
+                break;
+            case "storm":
+                sat *= 0.35f;
+                for (int i = 0; i < 3; i++) m[i] *= 0.56f;
+                m[5] += 12;
+                break;
+            case "fog":
+                sat *= 0.4f;
+                for (int i = 0; i < 3; i++) { m[i] *= 0.7f; m[i + 3] += phase.equals("night") ? 18 : 60; }
+                break;
+        }
         ColorMatrix cm = new ColorMatrix();
-        cm.setSaturation(0.15f);
+        cm.setSaturation(sat);
         cm.postConcat(new ColorMatrix(new float[]{
-                0.64f, 0, 0, 0, 8,
-                0, 0.62f, 0, 0, 6,
-                0, 0, 0.68f, 0, 16,
+                m[0], 0, 0, 0, m[3],
+                0, m[1], 0, 0, m[4],
+                0, 0, m[2], 0, m[5],
                 0, 0, 0, 1, 0}));
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
         paint.setColorFilter(new ColorMatrixColorFilter(cm));
         android.graphics.Canvas c = new android.graphics.Canvas(out);
         c.drawBitmap(src, 0, 0, paint);
+
+        // A soft glow in the sky at dawn and dusk.
+        if (phase.equals("dawn") || phase.equals("dusk")) {
+            int glow = phase.equals("dawn") ? 0x40FFB89A : 0x40FF9A6C;
+            Paint g = new Paint();
+            g.setShader(new android.graphics.RadialGradient(out.getWidth() * 0.72f, out.getHeight() * 0.18f,
+                    out.getWidth() * 0.55f, glow, glow & 0x00FFFFFF, Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, out.getWidth(), out.getHeight(), g);
+        }
+        // Darker bottom so the apps read well.
         Paint shade = new Paint();
         shade.setShader(new LinearGradient(0, out.getHeight() * 0.55f, 0, out.getHeight(),
                 0x00000000, 0x8C000000, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, out.getWidth(), out.getHeight(), shade);
         src.recycle();
-        wallpaper = out;
+        graded.put(key, out);
         return out;
     }
 

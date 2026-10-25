@@ -96,6 +96,15 @@ final class Store {
         p.edit().putFloat("weather_temp", temp).putInt("weather_code", code).putLong("weather_time", time).apply();
     }
 
+    // ---- live scene ----
+    /** true = scene follows time of day and weather; false = always Winter Snowfall. */
+    boolean liveScene() { return p.getBoolean("live_scene", true); }
+    void setLiveScene(boolean b) { p.edit().putBoolean("live_scene", b).apply(); }
+    /** Sunrise / sunset as minutes after midnight (local), -1 when unknown. */
+    int sunrise() { return p.getInt("sunrise_min", -1); }
+    int sunset() { return p.getInt("sunset_min", -1); }
+    void setSun(int rise, int set) { p.edit().putInt("sunrise_min", rise).putInt("sunset_min", set).apply(); }
+
     // ---- sleep timer & Google home bypass ----
     long sleepAt() { return p.getLong("sleep_at", 0); }
     void setSleepAt(long t) { p.edit().putLong("sleep_at", t).apply(); }

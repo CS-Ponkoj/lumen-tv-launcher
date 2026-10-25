@@ -10,7 +10,7 @@ import android.graphics.drawable.Drawable;
 
 /** Simple white line-art weather icons drawn in code (sun, cloud, rain, snow, fog, storm). */
 final class WeatherIcon extends Drawable {
-    static final int CLEAR = 0, PARTLY = 1, CLOUDY = 2, FOG = 3, RAIN = 4, SNOW = 5, STORM = 6;
+    static final int CLEAR = 0, PARTLY = 1, CLOUDY = 2, FOG = 3, RAIN = 4, SNOW = 5, STORM = 6, MOON = 7;
 
     private final int kind;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -57,6 +57,15 @@ final class WeatherIcon extends Drawable {
         float x = b.left, y = b.top;
         p.setStrokeWidth(s * 0.065f);
         switch (kind) {
+            case MOON: {
+                Path m = new Path();
+                m.addCircle(x + s * 0.5f, y + s * 0.5f, s * 0.32f, Path.Direction.CW);
+                Path cut = new Path();
+                cut.addCircle(x + s * 0.68f, y + s * 0.36f, s * 0.28f, Path.Direction.CW);
+                m.op(cut, Path.Op.DIFFERENCE);
+                c.drawPath(m, p);
+                break;
+            }
             case CLEAR:
                 sun(c, x + s * 0.5f, y + s * 0.5f, s * 0.2f, s);
                 break;

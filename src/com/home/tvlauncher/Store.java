@@ -68,13 +68,19 @@ final class Store {
     boolean showDataUsage() { return p.getBoolean("show_data", true); }
     void setShowDataUsage(boolean b) { p.edit().putBoolean("show_data", b).apply(); }
     float uv() {
-        if (!p.getBoolean("extras_v1", false)) { // fetch UV and humidity once after this update
-            p.edit().putBoolean("extras_v1", true).putLong("weather_time", 0).apply();
+        if (!p.getBoolean("extras_v2", false)) { // fetch UV and humidity once after this update
+            p.edit().putBoolean("extras_v2", true).putLong("weather_time", 0).apply();
         }
         return p.getFloat("weather_uv", -1);
     }
     int humidity() { return p.getInt("weather_hum", -1); }
     void setExtras(float uv, int hum) { p.edit().putFloat("weather_uv", uv).putInt("weather_hum", hum).apply(); }
+    float feels() { return p.getFloat("weather_feels", -999); }
+    float wind() { return p.getFloat("weather_wind", -1); }
+    float gust() { return p.getFloat("weather_gust", -1); }
+    void setFeel(float feels, float wind, float gust) {
+        p.edit().putFloat("weather_feels", feels).putFloat("weather_wind", wind).putFloat("weather_gust", gust).apply();
+    }
     String roomName() { return p.getString("room_name", "Living room"); }
     void setRoomName(String n) { p.edit().putString("room_name", n).apply(); }
 

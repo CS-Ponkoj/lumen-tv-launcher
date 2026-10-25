@@ -79,6 +79,7 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private ScrollView scroll;
     private LinearLayout content;
+    private TextView detailView;
     private TextView titleView, greetingView, statusView, weatherTemp, weatherPlace, wifiPillText;
     private ImageView weatherIcon, wifiPillIcon;
     private LinearLayout weatherRow;
@@ -220,6 +221,9 @@ public class MainActivity extends Activity {
         header.addView(infoPanel(), new LinearLayout.LayoutParams(0, -2, 1f));
         header.addView(pills());
         content.addView(header);
+        LinearLayout.LayoutParams dl2 = new LinearLayout.LayoutParams(-2, -2);
+        dl2.topMargin = dp(2);
+        content.addView(detailView, dl2); // full width, below the greeting
 
         // 2. Space, then the focused app's name and the favourites tray (fills the first screen)
         View spacer = new View(this);
@@ -272,7 +276,7 @@ public class MainActivity extends Activity {
 
         // Place the tray near the bottom of the first screen, like CleanYourTV.
         scroll.post(() -> {
-            int used = header.getHeight() + titleView.getHeight() + favoritesTray.getHeight() + dp(40) + dp(96);
+            int used = header.getHeight() + detailView.getHeight() + titleView.getHeight() + favoritesTray.getHeight() + dp(40) + dp(96);
             spacer.getLayoutParams().height = Math.max(dp(40), scroll.getHeight() - used);
             spacer.requestLayout();
             if (firstFocus != null && (getCurrentFocus() == null || movePkg == null)) {
@@ -341,6 +345,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(-2, -2);
         gl.topMargin = dp(4);
         col.addView(greetingView, gl);
+        detailView = infoText(14, 0xE6FFFFFF);
+        detailView.setSingleLine(true);
         return col;
     }
 
@@ -354,17 +360,27 @@ public class MainActivity extends Activity {
 
     private void refreshInfo() {
         applyScene();
-        if (greetingView != null) greetingView.setText(greetingLine());
+        if (greetingView != null) greetingView.setText(greeting());
+        if (detailView != null) {
+            String d = detailLine();
+            detailView.setText(d);
+            detailView.setVisibility(d.isEmpty() ? View.GONE : View.VISIBLE);
+        }
         updateStatusLine();
         showWeather();
         updateDataUsage();
     }
 
-    /** "Good night · Clear · UV 0 · Humidity 62%" */
-    private String greetingLine() {
-        StringBuilder sb = new StringBuilder(greeting());
+    /** "Clear · Feels like 32°F · Freezing · UV 0 low · Humidity 65%" */
+    private String detailLine() {
+        StringBuilder sb = new StringBuilder();
         if (store.weatherOn() && store.weatherTime() > 0) {
-            sb.append(" · ").append(conditionWord());
+            sb.append(conditionWord());
+            if (store.feels() > -999) {
+                sb.append(" · Feels like ").append(Math.round(store.feels()))
+                        .append(store.weatherFahrenheit() ? "°F" : "°C");
+            }
+            for (String tag : feelTags()) sb.append(" · ").append(tag);
             if (store.uv() >= 0) sb.append(" · UV ").append(Math.round(store.uv())).append(' ').append(uvLevel(store.uv()));
             if (store.humidity() >= 0) sb.append(" · Humidity ").append(store.humidity()).append('%');
         }
@@ -383,6 +399,26 @@ public class MainActivity extends Activity {
         if (c >= 71 && c <= 77 || c == 85 || c == 86) return "Snowing";
         if (c >= 95) return "Stormy";
         return "Cloudy";
+    }
+
+    /** Extra warnings: Windy, Heatwave, Freezing, Very humid, High UV. */
+    private List<String> feelTags() {
+        List<String> t = new ArrayList<>();
+        boolean f = store.weatherFahrenheit();
+        float feels = store.feels(), wind = store.wind(), gust = store.gust();
+        float windFast = f ? 20 : 32, gustFast = f ? 35 : 56;      // mph / km/h
+        if (wind >= windFast || gust >= gustFast) {
+            t.add("Windy " + Math.round(Math.max(wind, 0)) + (f ? " mph" : " km/h"));
+        }
+        if (feels > -999) {
+            float c = f ? (feels - 32) * 5 / 9 : feels;
+            if (c >= 38) t.add("Heatwave");
+            else if (c >= 32) t.add("Very hot");
+            else if (c <= -10) t.add("Bitter cold");
+            else if (c <= 0) t.add("Freezing");
+        }
+        if (store.humidity() >= 85) t.add("Very humid");
+        return t;
     }
 
     private static String uvLevel(float uv) {
@@ -451,9 +487,11 @@ public class MainActivity extends Activity {
         if (!store.weatherOn() || store.weatherTime() == 0) {
             weatherRow.setVisibility(View.GONE);
         } else {
-            weatherIcon.setImageDrawable(new WeatherIcon(WeatherIcon.fromCode(store.weatherCode())));
+            int kind = WeatherIcon.fromCode(store.weatherCode());
+            if (kind == WeatherIcon.CLEAR && "night".equals(phaseNow())) kind = WeatherIcon.MOON;
+            weatherIcon.setImageDrawable(new WeatherIcon(kind));
             weatherTemp.setText(Math.round(store.weatherTemp()) + (store.weatherFahrenheit() ? "°F" : "°C"));
-            weatherPlace.setText(store.weatherPlace() + " · " + WeatherIcon.describe(store.weatherCode()));
+            weatherPlace.setText(store.weatherPlace());
             weatherRow.setVisibility(View.VISIBLE);
         }
         if (store.weatherOn() && System.currentTimeMillis() - store.weatherTime() > 30 * 60_000L) fetchWeather();
@@ -480,8 +518,10 @@ public class MainActivity extends Activity {
                 String unit = store.weatherFahrenheit() ? "&temperature_unit=fahrenheit" : "";
                 org.json.JSONObject f = new org.json.JSONObject(httpGet("https://api.open-meteo.com/v1/forecast?latitude="
                         + store.weatherLat() + "&longitude=" + store.weatherLon()
-                        + "&current=temperature_2m,weather_code,uv_index,relative_humidity_2m&daily=sunrise,sunset&timezone=auto&forecast_days=1" + unit));
+                        + "&current=temperature_2m,weather_code,uv_index,relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m&daily=sunrise,sunset&timezone=auto&forecast_days=1" + unit + (store.weatherFahrenheit() ? "&wind_speed_unit=mph" : "")));
                 org.json.JSONObject cur = f.getJSONObject("current");
+                store.setFeel((float) cur.optDouble("apparent_temperature", -999),
+                        (float) cur.optDouble("wind_speed_10m", -1), (float) cur.optDouble("wind_gusts_10m", -1));
                 store.setExtras((float) cur.optDouble("uv_index", -1), cur.optInt("relative_humidity_2m", -1));
                 try {
                     org.json.JSONObject daily = f.getJSONObject("daily");

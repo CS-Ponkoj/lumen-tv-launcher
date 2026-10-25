@@ -153,7 +153,7 @@ final class Fireflies {
             if (ft >= 0 && ft <= 1) {
                 my[i] -= 4 * d * dt;                                    // the faintest lift while lit
                 float b = flashCurve(ft) * (0.55f + 0.45f * depth[i]);
-                light(c, mx[i], my[i], (0.7f + depth[i] * 1.3f) * d, b, depth[i]);
+                light(c, mx[i], my[i], (0.5f + depth[i] * 0.9f) * d, b, depth[i]);
                 if (!answered[i] && ft > 0.3f) {
                     answered[i] = true;
                     for (int f = 0; f < FEMALES; f++) {
@@ -184,7 +184,7 @@ final class Fireflies {
             if (fGlow[f] > 0) {
                 fGlow[f] += dt;
                 float t = fGlow[f] / 1.2f;
-                light(c, fx[f], fy[f], 0.9f * d, flashCurve(t) * 0.75f, 0.7f);
+                light(c, fx[f], fy[f], 0.65f * d, flashCurve(t) * 0.75f, 0.7f);
                 if (t >= 1) { fGlow[f] = 0; fReplyIn[f] = -1; }
             }
         }

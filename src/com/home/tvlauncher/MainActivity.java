@@ -416,7 +416,7 @@ public class MainActivity extends Activity {
             weatherRow.setVisibility(View.GONE);
         } else {
             weatherIcon.setImageDrawable(new WeatherIcon(WeatherIcon.fromCode(store.weatherCode())));
-            weatherTemp.setText(Math.round(store.weatherTemp()) + "°");
+            weatherTemp.setText(Math.round(store.weatherTemp()) + (store.weatherFahrenheit() ? "°F" : "°C"));
             weatherPlace.setText(store.weatherPlace() + " · " + WeatherIcon.describe(store.weatherCode()));
             weatherRow.setVisibility(View.VISIBLE);
         }

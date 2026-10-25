@@ -145,6 +145,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        BootReceiver.enableHomeButton(this);   // also when Lumen opens, in case the boot broadcast was missed
         rebuild();
         handler.post(minuteTick);
     }

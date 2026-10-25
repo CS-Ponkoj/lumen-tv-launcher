@@ -532,7 +532,7 @@ public class MainActivity extends Activity {
                             minutesOf(daily.getJSONArray("sunset").getString(0)));
                 } catch (Exception ignored) { }
                 store.setWeather((float) cur.getDouble("temperature_2m"), cur.getInt("weather_code"), System.currentTimeMillis());
-                runOnUiThread(this::showWeather);
+                runOnUiThread(this::refreshInfo);   // weather row and the details line under the greeting
             } catch (Exception ignored) {
                 // offline: keep the last known weather
             } finally {

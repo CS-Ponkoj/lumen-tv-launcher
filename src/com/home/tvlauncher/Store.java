@@ -74,7 +74,7 @@ final class Store {
         return p.getFloat("weather_uv", -1);
     }
     int humidity() { return p.getInt("weather_hum", -1); }
-    void setExtras(float uv, int hum) { p.edit().putFloat("weather_uv", uv).putInt("weather_hum", hum).apply(); }
+    void setExtras(float uv, int hum) { p.edit().putFloat("weather_uv", uv).putInt("weather_hum", hum).putBoolean("extras_v2", true).apply(); }
     float feels() { return p.getFloat("weather_feels", -999); }
     float wind() { return p.getFloat("weather_wind", -1); }
     float gust() { return p.getFloat("weather_gust", -1); }
@@ -85,9 +85,16 @@ final class Store {
     void setRoomName(String n) { p.edit().putString("room_name", n).apply(); }
 
     // ---- weather (opt-in) ----
-    boolean weatherOn() { return p.getBoolean("weather_on", false); }
+    boolean weatherOn() { return p.getBoolean("weather_on", true); }
     void setWeatherOn(boolean b) { p.edit().putBoolean("weather_on", b).apply(); }
-    String weatherCity() { return p.getString("weather_city", ""); }
+    String weatherCity() { return p.getString("weather_city", zoneCity()); }
+
+    /** A first guess at the city from the TV's time zone (America/Los_Angeles -> Los Angeles), until one is chosen. */
+    private static String zoneCity() {
+        String id = java.util.TimeZone.getDefault().getID();
+        int slash = id.lastIndexOf('/');
+        return slash < 0 || id.startsWith("Etc/") ? "" : id.substring(slash + 1).replace('_', ' ');
+    }
     void setWeatherCity(String c) { p.edit().putString("weather_city", c).apply(); }
     String weatherLat() { return p.getString("weather_lat", ""); }
     String weatherLon() { return p.getString("weather_lon", ""); }

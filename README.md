@@ -48,6 +48,9 @@ TCL Smart TV Pro (G03_4K_US), Google TV 11 (Android 11), firmware GTV93, debloat
 3. Open **Lumen** from your apps.
 4. To make the remote's Home button open it: Settings → System → Accessibility →
    turn on **Lumen - Home button** (or use the side panel → Home button setup).
+5. Some TVs (TCL among them) switch that off at every restart. To have Lumen turn it back on whenever
+   it opens, grant it once over ADB:
+   `adb shell pm grant com.home.tvlauncher android.permission.WRITE_SECURE_SETTINGS`
 
 To undo: turn that service off, or uninstall the app.
 

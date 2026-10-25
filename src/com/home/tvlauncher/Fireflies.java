@@ -57,7 +57,7 @@ final class Fireflies {
             depth[i] = rnd.nextFloat();
             mx[i] = rnd.nextFloat() * w;
             my[i] = h * (0.55f + rnd.nextFloat() * 0.4f);       // a few feet above the ground
-            dir[i] = rnd.nextBoolean() ? 1 : -1;
+            dir[i] = rnd.nextFloat() * 6.28f;
             period[i] = 5f + rnd.nextFloat() * 2f;               // 5-7 s rhythm
             cycle[i] = rnd.nextFloat() * period[i];
         }
@@ -104,49 +104,38 @@ final class Fireflies {
         }
 
         for (int i = 0; i < MALES; i++) {
-            float k = 0.5f + depth[i];                           // near ones move a bit faster on screen
+            // slow, lazy wandering in any direction (a few pixels a second)
+            dir[i] += (rnd.nextFloat() - 0.5f) * dt * 1.6f;          // heading, radians
+            float speed = (2.5f + depth[i] * 4f) * d;
+            mx[i] += (float) Math.cos(dir[i]) * speed * dt;
+            my[i] += (float) Math.sin(dir[i]) * speed * 0.6f * dt;
+
             cycle[i] += dt;
-            float swoopStart = period[i] - SWOOP;
-            if (cycle[i] < swoopStart) {
-                // slow forward hover, slight vertical bob
-                mx[i] += dir[i] * 6 * d * k * dt;
-                my[i] += (float) Math.sin(cycle[i] * 1.7f + i) * 3 * d * dt;
-                swoopX[i] = mx[i];
-                swoopY[i] = my[i];
-                answered[i] = false;
-            } else {
-                // the J: a short dip, then a sharp upward arc; light on the upswing
-                float t = (cycle[i] - swoopStart) / SWOOP;       // 0..1
-                float dip = 10 * d * k, rise = 46 * d * k, ahead = 26 * d * k;
-                float py = t < 0.3f ? (float) Math.sin(t / 0.3f * Math.PI / 2) * dip
-                        : dip - (float) Math.pow((t - 0.3f) / 0.7f, 1.3) * (dip + rise);
-                mx[i] = swoopX[i] + dir[i] * ahead * t;
-                my[i] = swoopY[i] + py;
-                float ft = (cycle[i] - (period[i] - FLASH)) / FLASH;
+            float ft = (cycle[i] - (period[i] - FLASH)) / FLASH;
+            if (ft >= 0 && ft <= 1) {
+                my[i] -= 4 * d * dt;                                    // the faintest lift while lit
                 float b = flashCurve(ft) * (0.55f + 0.45f * depth[i]);
                 light(c, mx[i], my[i], (0.8f + depth[i] * 1.2f) * d, b);
-
-                // a nearby female notices and will answer
                 if (!answered[i] && ft > 0.3f) {
                     answered[i] = true;
                     for (int f = 0; f < FEMALES; f++) {
                         if (fReplyIn[f] < 0 && Math.abs(fx[f] - mx[i]) < w * 0.12f && rnd.nextFloat() < 0.6f) {
-                            fReplyIn[f] = 1f + rnd.nextFloat();  // 1-2 s delay
+                            fReplyIn[f] = 1f + rnd.nextFloat();
                             break;
                         }
                     }
                 }
-                if (cycle[i] >= period[i]) {
-                    cycle[i] = 0;
-                    my[i] = swoopY[i] - 6 * d;                   // settles a little higher, drifts back down
-                    period[i] = 5f + rnd.nextFloat() * 2f;
-                    if (rnd.nextFloat() < 0.25f) dir[i] = -dir[i];
-                }
             }
-            if (my[i] < h * 0.45f) my[i] += 20 * d * dt;
-            if (my[i] > h * 0.97f) my[i] -= 20 * d * dt;
-            if (mx[i] < -30 * d) { mx[i] = w + 20 * d; swoopX[i] = mx[i]; }
-            if (mx[i] > w + 30 * d) { mx[i] = -20 * d; swoopX[i] = mx[i]; }
+            if (cycle[i] >= period[i]) {
+                cycle[i] = 0;
+                answered[i] = false;
+                period[i] = 5f + rnd.nextFloat() * 2f;
+            }
+            // stay in the lower forest band, wrap at the sides
+            if (my[i] < h * 0.45f) dir[i] = (float) (Math.PI / 2);
+            if (my[i] > h * 0.97f) dir[i] = (float) (-Math.PI / 2);
+            if (mx[i] < -30 * d) mx[i] = w + 20 * d;
+            if (mx[i] > w + 30 * d) mx[i] = -20 * d;
         }
 
         for (int f = 0; f < FEMALES; f++) {

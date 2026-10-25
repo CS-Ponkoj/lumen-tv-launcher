@@ -17,7 +17,7 @@ import java.util.Random;
  *   1-2 s later with a short flash of their own.
  */
 final class Fireflies {
-    private static final int MALES = 46, FEMALES = 16, STARS = 22;
+    private static final int MALES = 90, FEMALES = 30, STARS = 22;
 
     private final Random rnd = new Random();
     private final float d;                       // density

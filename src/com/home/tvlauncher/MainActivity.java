@@ -411,6 +411,7 @@ public class MainActivity extends Activity {
 
     private void showWeather() {
         if (weatherRow == null) return;
+        store.weatherFahrenheit(); // applies the one-time Fahrenheit switch before the cache is read
         if (!store.weatherOn() || store.weatherTime() == 0) {
             weatherRow.setVisibility(View.GONE);
         } else {

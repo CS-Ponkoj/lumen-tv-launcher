@@ -81,7 +81,13 @@ final class Store {
     void setWeatherLocation(String lat, String lon, String place) {
         p.edit().putString("weather_lat", lat).putString("weather_lon", lon).putString("weather_place", place).apply();
     }
-    boolean weatherFahrenheit() { return p.getBoolean("weather_f", false); }
+    /** Fahrenheit by default (a one-time switch moves older installs over). */
+    boolean weatherFahrenheit() {
+        if (!p.getBoolean("units_f_default", false)) {
+            p.edit().putBoolean("units_f_default", true).putBoolean("weather_f", true).putLong("weather_time", 0).apply();
+        }
+        return p.getBoolean("weather_f", true);
+    }
     void setWeatherFahrenheit(boolean f) { p.edit().putBoolean("weather_f", f).apply(); }
     float weatherTemp() { return p.getFloat("weather_temp", 0); }
     int weatherCode() { return p.getInt("weather_code", 0); }

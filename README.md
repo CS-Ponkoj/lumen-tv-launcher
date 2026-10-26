@@ -51,6 +51,11 @@ TCL Smart TV Pro (G03_4K_US), Google TV 11 (Android 11), firmware GTV93, debloat
 5. Some TVs (TCL among them) switch that off at every restart. To have Lumen turn it back on whenever
    it opens, grant it once over ADB:
    `adb shell pm grant com.home.tvlauncher android.permission.WRITE_SECURE_SETTINGS`
+6. TCL TVs also block apps from starting by themselves. Allow Lumen to, and save it so it survives a
+   restart (the second command matters: without it the TV forgets the first). The TV then goes to Lumen
+   on its own after every restart:
+   `adb shell cmd appops set com.home.tvlauncher APP_AUTO_START allow`
+   `adb shell cmd appops write-settings`
 
 To undo: turn that service off, or uninstall the app.
 

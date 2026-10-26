@@ -92,7 +92,7 @@ public class MainActivity extends Activity {
     private String forcedSeason;
     private String sceneKey;
     private String forcedScene;   // for previews: "night/rain" etc. via an intent extra
-    private final Map<String, Bitmap> graded = new HashMap<>();
+    private final Map<String, Bitmap> graded = java.util.Collections.synchronizedMap(new HashMap<>());
 
     private final Map<String, App> apps = new LinkedHashMap<>();
     private final Map<String, View> favTiles = new HashMap<>();
@@ -834,6 +834,14 @@ public class MainActivity extends Activity {
     private Drawable monoLogo(App a) {
         Drawable cached = monoCache.get(a.pkg);
         if (cached != null) return cached;
+        // Saved from an earlier start: working the logo out pixel by pixel for every card took ~0.5 s per launch.
+        java.io.File saved = logoFile(a);
+        Bitmap prev = saved != null && saved.exists() ? BitmapFactory.decodeFile(saved.getAbsolutePath()) : null;
+        if (prev != null) {
+            Drawable logo = new android.graphics.drawable.BitmapDrawable(getResources(), prev);
+            monoCache.put(a.pkg, logo);
+            return logo;
+        }
         Bitmap bm = snapshot(a);
         int bw = bm.getWidth(), bh = bm.getHeight();
         int[] px = new int[bw * bh];
@@ -871,13 +879,40 @@ public class MainActivity extends Activity {
         bm.setPixels(px, 0, bw, 0, 0, bw, bh);
         Drawable logo = new android.graphics.drawable.BitmapDrawable(getResources(), bm);
         monoCache.put(a.pkg, logo);
+        if (saved != null) {
+            new Thread(() -> {
+                try (java.io.FileOutputStream fo = new java.io.FileOutputStream(saved)) {
+                    bm.compress(Bitmap.CompressFormat.PNG, 100, fo);
+                } catch (Exception ignored) { }
+            }, "lumen-logo").start();
+        }
         return logo;
+    }
+
+    /** Where an app's white logo is kept; a new name whenever the app updates, so its banner is read again. */
+    private java.io.File logoFile(App a) {
+        try {
+            long t = pm.getPackageInfo(a.pkg, 0).lastUpdateTime;
+            java.io.File dir = new java.io.File(getCacheDir(), "logos");
+            if (!dir.exists()) dir.mkdirs();
+            return new java.io.File(dir, a.pkg + "-" + t + ".png");
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** The app's signature colour: the most common vivid colour in its banner (white if none). */
     private int appColor(App a) {
         Integer cached = colorCache.get(a.pkg);
         if (cached != null) return cached;
+        java.io.File f = logoFile(a);
+        android.content.SharedPreferences colors = getSharedPreferences("app_colors", MODE_PRIVATE);
+        String ck = f != null ? f.getName() : null;
+        if (ck != null && colors.contains(ck)) {
+            int c = colors.getInt(ck, Color.WHITE);
+            colorCache.put(a.pkg, c);
+            return c;
+        }
         Bitmap bm = snapshot(a);
         int[] buckets = new int[36];
         long[][] sum = new long[36][3];
@@ -901,6 +936,7 @@ public class MainActivity extends Activity {
             out = Color.rgb((int) (sum[best][0] / k), (int) (sum[best][1] / k), (int) (sum[best][2] / k));
         }
         colorCache.put(a.pkg, out);
+        if (ck != null) colors.edit().putInt(ck, out).apply();
         return out;
     }
 
@@ -1494,11 +1530,23 @@ public class MainActivity extends Activity {
         sceneKey = key;
         String phase = key.substring(0, key.indexOf('/')), weather = key.substring(key.indexOf('/') + 1);
 
-        bgView.setImageBitmap(graded(phase, weather));
+        Bitmap ready = graded.get(store.background() + "|" + phase + "/" + weather);
+        if (ready != null) { showScene(key, phase, weather, ready); return; }
+        // Decoding and grading the photo takes a few hundred ms on a TV: draw the screen first, then fade it in.
+        if (bgView.getDrawable() == null) bgView.setBackgroundColor(0xFF1B2233);
+        new Thread(() -> {
+            Bitmap bm = graded(phase, weather);
+            runOnUiThread(() -> { if (key.equals(sceneKey) && bgView != null) showScene(key, phase, weather, bm); });
+        }, "lumen-scene").start();
+    }
 
+    private void showScene(String key, String phase, String weather, Bitmap bm) {
+        boolean first = bgView.getDrawable() == null;
+        bgView.setImageBitmap(bm);
+        if (first) { bgView.setAlpha(0f); bgView.animate().alpha(1f).setDuration(250).start(); }
         for (View v : sceneViews) root.removeView(v);
         sceneViews.clear();
-        SceneView.Stack stack = new SceneView.Stack(this, layersFor(phase, weather, season()), graded(phase, weather));
+        SceneView.Stack stack = new SceneView.Stack(this, layersFor(phase, weather, season()), bm);
         root.addView(stack, root.indexOfChild(bgView) + 1, new FrameLayout.LayoutParams(-1, -1));
         sceneViews.add(stack);
     }
@@ -1614,7 +1662,7 @@ public class MainActivity extends Activity {
     }
 
     /** The misty forest photo (CC0, Jay Mantri via Pexels) re-lit for the time of day and weather. */
-    private Bitmap graded(String phase, String weather) {
+    private synchronized Bitmap graded(String phase, String weather) {
         String key = store.background() + "|" + phase + "/" + weather;
         Bitmap cached = graded.get(key);
         if (cached != null) return cached;
